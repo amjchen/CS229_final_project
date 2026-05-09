@@ -46,6 +46,9 @@ SUPPLEMENTAL_TICKERS = [
     "GC=F",    # Gold Futures (risk-off indicator)
     "CL=F",    # Crude Oil Futures
     "DX-Y.NYB", # US Dollar Index
+    "HG=F", #Copper
+    "HYG", #High Yield Bond ETF
+    "^IRX", #13 week T-bill for Yield curve computation
 ]
 
 OUTPUT_DIR = "market_data"
@@ -100,17 +103,27 @@ def build_feature_table(close_prices: pd.DataFrame) -> pd.DataFrame:
     """
     Given a DataFrame of closing prices (one column per ticker),
     compute log returns and realized volatility for each series.
+
+    Directly use level ticker levels and compute the difference as a feature.
     """
+
+
+    level_tickers = {"^TNX", "^TYX", "^IRX", "^VIX"}
+
     features = pd.DataFrame(index=close_prices.index)
 
     for ticker in close_prices.columns:
         series = close_prices[ticker].dropna()
-        log_ret = compute_log_returns(series)
-        features[f"{ticker}_log_return"] = log_ret
 
-        for w in REALIZED_VOL_WINDOWS:
-            col = f"{ticker}_realized_vol_{w}d"
-            features[col] = compute_realized_volatility(log_ret, w)
+        if ticker in level_tickers:
+            features[f"{ticker}_level"] = series
+            features[f":{ticker}_change"] = series.diff()
+        else:
+            log_ret = compute_log_returns(series)
+            features[f"{ticker}_log_return"] = log_ret
+            for w in REALIZED_VOL_WINDOWS:
+                col = f"{ticker}_realized_vol_{w}d"
+                features[col] = compute_realized_volatility(log_ret, w)
 
     return features
 
@@ -152,10 +165,6 @@ def main():
     # ── 3. Compute log returns + realized volatility ─────────────────────────
     print("\n[3/4] Computing log returns and realized volatility...")
     features = build_feature_table(close_prices)
-
-    # Pull implied volatility (VIX) directly into the feature table
-    if "^VIX" in close_prices.columns:
-        features["implied_vol_vix"] = close_prices["^VIX"] / 100  # convert % → decimal
 
     path_features = os.path.join(OUTPUT_DIR, "features.csv")
     features.to_csv(path_features)
