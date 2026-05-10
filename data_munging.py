@@ -5,7 +5,7 @@ from sklearn.preprocessing import StandardScaler
 from config import DataConfig
 
 
-cfg = DataConfig()
+cfg = DataConfig() 
 
 features = pd.read_csv(cfg.features_path, index_col = "date ", parse_dates = True)
 prices = pd.read_csv(cfg.prices_path, index_col = "date", parse_dates = True)
