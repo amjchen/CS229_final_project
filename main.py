@@ -17,6 +17,24 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import os
+from fredapi import Fred
+import torch
+
+fred = Fred(api_key = '6dac8927ae66be817978bd55e16a9241')
+
+
+data = {
+    'unemp': fred.get_series('UNRATE'),
+    'cpi': fred.get_series('CPIAUCSL'),
+    'gdp': fred.get_series('GDP'),
+    'spread': fred.get_series('T10Y2Y'),
+    'sp500': fred.get_series('SP500'),
+    'vix': fred.get_series('VIXCLS'),
+    'baa': fred.get_series('BAA'),
+    'aaa': fred.get_series('AAA'),
+}
+
+
 
 # ─────────────────────────────────────────────
 # Configuration
@@ -99,6 +117,30 @@ def compute_realized_volatility(log_returns: pd.Series, window: int) -> pd.Serie
     return log_returns.rolling(window).std() * np.sqrt(252)
 
 
+def build_macro_features(daily_index: pd.DatetimeIndex) -> pd.DataFrame:
+    macro = pd.DataFrame(index=daily_index)
+
+    # Unemployment: monthly, released ~30 days after reference month
+    unemp = data['unemp'].copy()
+    unemp.index = pd.to_datetime(unemp.index)
+    unemp_change = unemp.diff()
+    unemp.index += pd.DateOffset(days=30)
+    unemp_change.index = unemp.index
+    macro['unemp'] = unemp.reindex(daily_index, method='ffill')
+    macro['unemp_change'] = unemp_change.reindex(daily_index, method='ffill')
+
+    # CPI: monthly, released ~12 days after reference month
+    cpi = data['cpi'].copy()
+    cpi.index = pd.to_datetime(cpi.index)
+    cpi_yoy = cpi.pct_change(12) * 100
+    cpi.index += pd.DateOffset(days=12)
+    cpi_yoy.index = cpi.index
+    macro['cpi'] = cpi.reindex(daily_index, method='ffill')
+    macro['cpi_yoy'] = cpi_yoy.reindex(daily_index, method='ffill')
+
+    return macro.ffill()
+
+
 def build_feature_table(close_prices: pd.DataFrame) -> pd.DataFrame:
     """
     Given a DataFrame of closing prices (one column per ticker),
@@ -165,6 +207,9 @@ def main():
     # ── 3. Compute log returns + realized volatility ─────────────────────────
     print("\n[3/4] Computing log returns and realized volatility...")
     features = build_feature_table(close_prices)
+
+    macro = build_macro_features(features.index)
+    features = pd.concat([features, macro], axis=1)
 
     path_features = os.path.join(OUTPUT_DIR, "features.csv")
     features.to_csv(path_features)
