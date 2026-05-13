@@ -32,6 +32,7 @@ data = {
     'vix': fred.get_series('VIXCLS'),
     'baa': fred.get_series('BAA'),
     'aaa': fred.get_series('AAA'),
+    'gs3': fred.get_series('GS3'),   # 3-Year Treasury yield for corporate spread
 }
 
 
@@ -123,20 +124,42 @@ def build_macro_features(daily_index: pd.DatetimeIndex) -> pd.DataFrame:
     # Unemployment: monthly, released ~30 days after reference month
     unemp = data['unemp'].copy()
     unemp.index = pd.to_datetime(unemp.index)
-    unemp_change = unemp.diff()
+    unemp_change = unemp.diff()    # 1-month change
+    unemp_diff3  = unemp.diff(3)   # 3-month cumulative change
+    unemp_lag3   = unemp.shift(3)  # value from 3 months prior
     unemp.index += pd.DateOffset(days=30)
-    unemp_change.index = unemp.index
-    macro['unemp'] = unemp.reindex(daily_index, method='ffill')
+    for s in [unemp_change, unemp_diff3, unemp_lag3]:
+        s.index = unemp.index
+    macro['unemp']        = unemp.reindex(daily_index, method='ffill')
     macro['unemp_change'] = unemp_change.reindex(daily_index, method='ffill')
+    macro['unemp_diff3']  = unemp_diff3.reindex(daily_index, method='ffill')
+    macro['unemp_lag3']   = unemp_lag3.reindex(daily_index, method='ffill')
 
     # CPI: monthly, released ~12 days after reference month
     cpi = data['cpi'].copy()
     cpi.index = pd.to_datetime(cpi.index)
-    cpi_yoy = cpi.pct_change(12) * 100
+    cpi_yoy      = cpi.pct_change(12) * 100  # year-over-year inflation
+    cpi_mom      = cpi.pct_change(1) * 100   # month-over-month inflation
+    cpi_yoy_lag3 = cpi_yoy.shift(3)          # YoY inflation from 3 months prior
     cpi.index += pd.DateOffset(days=12)
-    cpi_yoy.index = cpi.index
-    macro['cpi'] = cpi.reindex(daily_index, method='ffill')
-    macro['cpi_yoy'] = cpi_yoy.reindex(daily_index, method='ffill')
+    for s in [cpi_yoy, cpi_mom, cpi_yoy_lag3]:
+        s.index = cpi.index
+    macro['cpi']          = cpi.reindex(daily_index, method='ffill')
+    macro['cpi_yoy']      = cpi_yoy.reindex(daily_index, method='ffill')
+    macro['cpi_mom']      = cpi_mom.reindex(daily_index, method='ffill')
+    macro['cpi_yoy_lag3'] = cpi_yoy_lag3.reindex(daily_index, method='ffill')
+
+    # Corporate credit spread: BAA - 3YR Treasury (market data, no publication lag)
+    baa = data['baa'].copy()
+    baa.index = pd.to_datetime(baa.index)
+    gs3 = data['gs3'].copy()
+    gs3.index = pd.to_datetime(gs3.index)
+    corp_spread       = baa - gs3
+    corp_spread_diff1 = corp_spread.diff(1)  # 1-month change in credit stress
+    corp_spread_diff3 = corp_spread.diff(3)  # 3-month change in credit stress
+    macro['corp_3yr_spread']       = corp_spread.reindex(daily_index, method='ffill')
+    macro['corp_3yr_spread_diff1'] = corp_spread_diff1.reindex(daily_index, method='ffill')
+    macro['corp_3yr_spread_diff3'] = corp_spread_diff3.reindex(daily_index, method='ffill')
 
     return macro.ffill()
 
