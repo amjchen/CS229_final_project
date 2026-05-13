@@ -8,7 +8,7 @@ from config import DataConfig
 
 cfg = DataConfig() 
 
-features = pd.read_csv(cfg.features_path, index_col = "date ", parse_dates = True)
+features = pd.read_csv(cfg.features_path, index_col = "date", parse_dates = True)
 prices = pd.read_csv(cfg.prices_path, index_col = "date", parse_dates = True)
 
 def remove_outliers(df):
@@ -49,11 +49,13 @@ def derive_features(features, prices):
     #Vol of Vol (standard deviation of the volatility)
     df["vov"] = prices["^VIX"].diff().rolling(21).std()
 
-    #Credit Spreads
-    df["credit_spread_return"] = features["HYG_log_return"] - features["TLT_log_return"]
+    #Credit Spreads (requires TLT; available after re-running main.py)
+    if "TLT_log_return" in features.columns:
+        df["credit_spread_return"] = features["HYG_log_return"] - features["TLT_log_return"]
 
     #Rolling equity-bond correlation
-    df["equity_bond_corr_63d"] = (features["^GSPC_log_return"].rolling(63).corr(features["TLT_log_return"]))
+    if "TLT_log_return" in features.columns:
+        df["equity_bond_corr_63d"] = features["^GSPC_log_return"].rolling(63).corr(features["TLT_log_return"])
 
     #Equity momentum
     df["equity_momentum_63d"]  = features["^GSPC_log_return"].rolling(63).sum()

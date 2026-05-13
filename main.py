@@ -67,6 +67,7 @@ SUPPLEMENTAL_TICKERS = [
     "DX-Y.NYB", # US Dollar Index
     "HG=F", #Copper
     "HYG", #High Yield Bond ETF
+    # "TLT", #20+ Year Treasury Bond ETF (credit spread + equity-bond corr — re-enable when regenerating features)
     "^IRX", #13 week T-bill for Yield curve computation
 ]
 
