@@ -104,14 +104,14 @@ def main():
 
     print(classification_report(y_test, preds))
 
-    # Compute transition accuracy for train set (since test set all same regime...)
-    current_regime = supervised_df.loc[y_train.index, "regime"]  # current regime at prediction time t
-    future_regime = y_train  # future true regime at t+h
+    # Compute transition accuracy for test set 
+    current_regime = supervised_df.loc[y_test.index, "regime"]  # current regime at prediction time t
+    future_regime = y_test  # future true regime at t+h
 
     # Predicted future regime
-    predicted_regime = pd.Series(preds_train, index=y_train.index)
+    predicted_regime = pd.Series(preds, index=y_test.index)
 
-    # $ true transitions
+    # # true transitions
     transition_mask = current_regime != future_regime
     n_transitions = transition_mask.sum()
 
@@ -124,6 +124,7 @@ def main():
         correct_transition_preds / n_transitions
     )
 
+    print("Test set results:")
     print(f"True transitions: {n_transitions}")
     print(f"Correctly predicted transitions: {correct_transition_preds}")
     print(f"Transition accuracy: {transition_accuracy:.4f}")
