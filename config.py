@@ -20,21 +20,25 @@ class DataConfig:
     kmeans_k: int = 3
     kmeans_k_range: tuple = (2, 13)
     kmeans_smooth_window: int = 42  # ~2 month rolling mode to enforce regime persistence
-    # K=4 was tried: produced a 106-day "post-COVID snap-back" regime (Jun–Nov 2020) that
+    # K=4 was tried: produced a 106-day "post-COVID snap-back" regime (Jun-Nov 2020) that
     # burned a cluster on an anomalous fiscal/monetary policy environment rather than a
     # structural credit cycle state. K=3 folds it into the recovery regime cleanly.
-
-    # Features used for K-means labeling — macro/credit only to capture cycle structure,
-    # not the full feature set (which includes short-term market noise).
+    #
+    # Feature set history:
+    #   v1 (macro/credit): corp_3yr_spread, corp_3yr_spread_diff1, unemp, unemp_change,
+    #      cpi_yoy, yield_curve_spread -- correctly identified credit crises but missed
+    #      shorter equity-specific stress periods (2011, 2015-16, Q4 2018) because unemp
+    #      and CPI lag equity markets by months.
+    #   v2 (equity-focused, current): swapped lagged macro for real-time equity signals.
     kmeans_label_cols: List[str] = None
 
     def __post_init__(self):
         if self.kmeans_label_cols is None:
             self.kmeans_label_cols = [
-                "corp_3yr_spread",       # credit stress level (primary regime driver)
-                "corp_3yr_spread_diff1", # spread momentum
-                "unemp",                 # labor market
-                "unemp_change",          # labor market turning point
-                "cpi_yoy",               # inflation regime
-                "yield_curve_spread",    # recession predictor (10Y - 3M)
+                "corp_3yr_spread",        # credit stress -- forward-looking equity risk signal
+                "yield_curve_spread",     # recession expectations (10Y - 3M)
+                "vix_level",              # market fear / implied volatility
+                "^GSPC_realized_vol_63d", # realized equity volatility (63-day)
+                "equity_momentum_126d",   # 6-month equity trend (bull/bear direction)
+                "copper_gold_ratio",      # risk appetite: growth vs. safety rotation
             ]
