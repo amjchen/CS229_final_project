@@ -115,5 +115,6 @@ def build_labels(k: int = None):
     return df_out, km, scaler
 
 
+
 if __name__ == "__main__":
     df_labeled, km, scaler = build_labels()

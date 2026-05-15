@@ -2,14 +2,22 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.stats import mode as scipy_mode
+from scipy.optimize import minimize
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
+from sklearn.preprocessing import StandardScaler
+from scipy.special import softmax
+
 
 from config import DataConfig
+from config import SupervisedConfig
+
 # from data_munging import features, prices, derive_features, remove_outliers, standardize_data
 # from unsupervised_learning import df_labeled, km, scaler
 
 cfg = DataConfig()
+cfg_sup = SupervisedConfig()
+
 
 import numpy as np
 import os
@@ -68,6 +76,65 @@ def build_supervised_regime_dataset(
     return X, y, supervised_df
 
 
+def ce_loss(theta, X, y, K):
+    n = X.shape[0]
+    theta = theta.reshape(K,-1)
+
+    eta = X @ theta.T
+    prob = softmax(eta, axis = 1)
+
+    log_loss = np.log(prob[np.arange(n), y] + 1e-12)
+    loss = -log_loss.sum()
+
+    if cfg_sup.penalty_type == "ce_standard":
+        transition_indicator = (y[1:] != y[:-1]).astype(float)
+        penalty = -cfg_sup.lam * (transition_indicator * log_loss[1:]).sum()
+    else:
+        penalty = 0
+
+    loss += penalty
+
+    return loss
+
+def ce_grad(theta, X, y, K):
+    n = X.shape[0]
+    theta = theta.reshape(K, -1)
+
+    eta = X @ theta.T
+    prob = softmax(eta, axis = 1)
+
+    one_hot = np.zeros((n,K))
+    one_hot[np.arange(n), y] = 1
+
+    dZ = prob - one_hot
+    dTheta = dZ.T @ X
+
+    if cfg_sup.penalty_type == "ce_standard":
+        transition_indicator = (y[1:] != y[:-1]).astype(float)
+        dZ_trans = np.zeros((n,K))
+        dZ_trans[1:] = transition_indicator[:, None] * (prob[1:] - one_hot[1:])
+        penalty_grad = cfg_sup.lam * dZ_trans.T @ X
+    else:
+        penalty_grad = 0
+    
+    grad = dTheta + penalty_grad
+
+    return grad.ravel()
+
+def optimize(X, y, loss_fn, gradient_fn, opt_method, max_iter = 2000):
+    K = int(y.max()) + 1
+    d = X.shape[1]
+
+    theta_0 = np.zeros(K * d)
+    theta_star = minimize(loss_fn, theta_0, args = (X, y, K), method = opt_method, jac = gradient_fn, options = {"maxiter" : max_iter})
+
+    if not theta_star.success:
+        print(f"[WARN] {theta_star.message}")
+    
+    return theta_star.x.reshape(K,d)
+
+
+
 # Baseline default softmax regression with CE loss
 def main():
     df_labeled = pd.read_csv(cfg.labeled_output_path, index_col=0, parse_dates=True)
@@ -92,15 +159,16 @@ def main():
 
     print(f"Transition rate: {transition_rate:.4f}")
 
-    model = LogisticRegression(
-        solver="lbfgs",
-        max_iter=5000,
-    )
+    scaler = StandardScaler()
+    X_train_np = scaler.fit_transform(X_train.values)
+    X_test_np = scaler.fit_transform(X_test.values)
+    y_train_np = y_train.values
+    y_test_np = y_test.values
 
-    model.fit(X_train, y_train)
+    theta = optimize(X_train_np, y_train_np, ce_loss, ce_grad, cfg_sup.opt_method, cfg_sup.max_iter)
 
-    preds_train = model.predict(X_train)
-    preds = model.predict(X_test)
+    K = int(y_train_np.max()) + 1
+    preds = softmax(X_test_np @ theta.T, axis = 1).argmax(axis = 1)
 
     print(classification_report(y_test, preds))
 

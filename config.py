@@ -17,7 +17,7 @@ class DataConfig:
     winsorize_upper: float = 0.995
 
     kmeans_start_date: str = "2000-01-01"
-    kmeans_k: int = 3
+    kmeans_k: int = 6
     kmeans_k_range: tuple = (2, 13)
     kmeans_smooth_window: int = 42  # ~2 month rolling mode to enforce regime persistence
     # K=4 was tried: produced a 106-day "post-COVID snap-back" regime (Jun-Nov 2020) that
@@ -42,3 +42,11 @@ class DataConfig:
                 "equity_momentum_126d",   # 6-month equity trend (bull/bear direction)
                 "copper_gold_ratio",      # risk appetite: growth vs. safety rotation
             ]
+
+@dataclass
+class SupervisedConfig:
+    opt_method : str = "L-BFGS-B"
+    max_iter: int = 2000
+    horizon : int = 21
+    lam : float = 1.0
+    penalty_type : str = "ce_standard" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
