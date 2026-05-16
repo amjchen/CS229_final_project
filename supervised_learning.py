@@ -64,62 +64,45 @@ def build_supervised_regime_dataset(
     return X, y, supervised_df
 
 
-def cross_validate_lam(X_train_np, y_train_np, lam_values, n_splits=5):
-    """
-    Time-series walk-forward CV to find best lambda.
-    Each fold uses an expanding training window and evaluates on the next block.
-    Scores on metric 1: consecutive transition accuracy.
-    """
-    n = len(X_train_np)
-    fold_size = n // (n_splits + 1)
-
-    best_lam = lam_values[0]
-    best_score = -np.inf
-
-    for lam in lam_values:
-        cfg_sup.lam = lam
-        fold_scores = []
-
-        for fold in range(1, n_splits + 1):
-            train_end = fold * fold_size
-            val_end = min(train_end + fold_size, n)
-
-            X_fold_train = X_train_np[:train_end]
-            y_fold_train = y_train_np[:train_end]
-            X_fold_val   = X_train_np[train_end:val_end]
-            y_fold_val   = y_train_np[train_end:val_end]
-
-            clf = SoftmaxRegression(max_iter=cfg_sup.max_iter, eps=1e-6, k=cfg.kmeans_k)
-            clf.fit(X_fold_train, y_fold_train,
-                    learning_rate=cfg_sup.learning_rate,
-                    batch_size=cfg_sup.batch_size)
-
-            preds_val = clf.predict(X_fold_val)
-
-            if cfg_sup.transition_metric == "metric2":
-                h = cfg_sup.horizon
-                transition_mask = y_fold_val[h:] != y_fold_val[:-h]
-                preds_shifted = preds_val[h:]
-                y_shifted = y_fold_val[h:]
-            else:  # metric1: consecutive
-                transition_mask = y_fold_val[1:] != y_fold_val[:-1]
-                preds_shifted = preds_val[1:]
-                y_shifted = y_fold_val[1:]
-
-            n_trans = transition_mask.sum()
-            if n_trans > 0:
-                correct = (preds_shifted[transition_mask] == y_shifted[transition_mask]).sum()
-                fold_scores.append(correct / n_trans)
-
-        avg_score = np.mean(fold_scores) if fold_scores else 0.0
-        print(f"lam={lam:.3f} | avg transition accuracy: {avg_score:.4f}")
-
-        if avg_score > best_score:
-            best_score = avg_score
-            best_lam = lam
-
-    print(f"\nBest lam: {best_lam} (transition accuracy: {best_score:.4f})")
-    return best_lam
+# def cross_validate_lam(X_train_np, y_train_np, lam_values, n_splits=5):
+#     n = len(X_train_np)
+#     fold_size = n // (n_splits + 1)
+#     best_lam = lam_values[0]
+#     best_score = -np.inf
+#     for lam in lam_values:
+#         cfg_sup.lam = lam
+#         fold_scores = []
+#         for fold in range(1, n_splits + 1):
+#             train_end = fold * fold_size
+#             val_end = min(train_end + fold_size, n)
+#             X_fold_train = X_train_np[:train_end]
+#             y_fold_train = y_train_np[:train_end]
+#             X_fold_val   = X_train_np[train_end:val_end]
+#             y_fold_val   = y_train_np[train_end:val_end]
+#             clf = SoftmaxRegression(max_iter=cfg_sup.max_iter, eps=1e-6, k=cfg.kmeans_k)
+#             clf.fit(X_fold_train, y_fold_train,
+#                     learning_rate=cfg_sup.learning_rate, batch_size=cfg_sup.batch_size)
+#             preds_val = clf.predict(X_fold_val)
+#             if cfg_sup.transition_metric == "metric2":
+#                 h = cfg_sup.horizon
+#                 transition_mask = y_fold_val[h:] != y_fold_val[:-h]
+#                 preds_eval = preds_val[h:]
+#                 y_eval = y_fold_val[h:]
+#             else:
+#                 transition_mask = y_fold_val[1:] != y_fold_val[:-1]
+#                 preds_eval = preds_val[1:]
+#                 y_eval = y_fold_val[1:]
+#             n_trans = transition_mask.sum()
+#             if n_trans > 0:
+#                 correct = (preds_eval[transition_mask] == y_eval[transition_mask]).sum()
+#                 fold_scores.append(correct / n_trans)
+#         avg_score = np.mean(fold_scores) if fold_scores else 0.0
+#         print(f"lam={lam:.3f} | avg {cfg_sup.transition_metric} accuracy: {avg_score:.4f}")
+#         if avg_score > best_score:
+#             best_score = avg_score
+#             best_lam = lam
+#     print(f"\nBest lam: {best_lam} ({cfg_sup.transition_metric} accuracy: {best_score:.4f})")
+#     return best_lam
 
 
 def main():
@@ -147,8 +130,8 @@ def main():
     y_train_np = y_train.to_numpy(dtype=np.int64)
     y_test_np = y_test.to_numpy(dtype=np.int64)
 
-    best_lam = cross_validate_lam(X_train_np, y_train_np, cfg_sup.lam_values)
-    cfg_sup.lam = best_lam
+    # best_lam = cross_validate_lam(X_train_np, y_train_np, cfg_sup.lam_values)
+    # cfg_sup.lam = best_lam
 
     clf = SoftmaxRegression(max_iter=cfg_sup.max_iter, eps=1e-6, k=cfg.kmeans_k)
     clf.fit(X_train_np, y_train_np, learning_rate=cfg_sup.learning_rate, batch_size=cfg_sup.batch_size)
@@ -167,7 +150,12 @@ def main():
     ).sum()
     print(f"True transitions: {n_transitions_train}")
     print(f"Correctly predicted transitions: {correct_transition_preds_train}")
-    print(f"Transition accuracy: {correct_transition_preds_train / n_transitions_train:.4f}")
+    print(f"Metric2 transition accuracy: {correct_transition_preds_train / n_transitions_train:.4f}")
+
+    m1_mask_tr = y_train_np[1:] != y_train_np[:-1]
+    m1_n_tr    = m1_mask_tr.sum()
+    m1_acc_tr  = (preds_train[1:][m1_mask_tr] == y_train_np[1:][m1_mask_tr]).sum() / m1_n_tr
+    print(f"Metric1 transition accuracy: {m1_acc_tr:.4f} ({m1_n_tr} transitions)")
 
     preds = clf.predict(X_test_np)
     print("\nTEST RESULTS")
@@ -194,7 +182,12 @@ def main():
     print("Test set results:")
     print(f"True transitions: {n_transitions}")
     print(f"Correctly predicted transitions: {correct_transition_preds}")
-    print(f"Transition accuracy: {transition_accuracy:.4f}")
+    print(f"Metric2 transition accuracy: {transition_accuracy:.4f}")
+
+    m1_mask = y_test_np[1:] != y_test_np[:-1]
+    m1_n    = m1_mask.sum()
+    m1_acc  = (preds[1:][m1_mask] == y_test_np[1:][m1_mask]).sum() / m1_n
+    print(f"Metric1 transition accuracy: {m1_acc:.4f} ({m1_n} transitions)")
 
 
 class SoftmaxRegression:
