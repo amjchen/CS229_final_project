@@ -17,7 +17,7 @@ class DataConfig:
     winsorize_upper: float = 0.995
 
     kmeans_start_date: str = "2000-01-01"
-    kmeans_k: int = 6
+    kmeans_k: int = 3
     kmeans_k_range: tuple = (2, 13)
     kmeans_smooth_window: int = 42  # ~2 month rolling mode to enforce regime persistence
     # K=4 was tried: produced a 106-day "post-COVID snap-back" regime (Jun-Nov 2020) that
@@ -45,8 +45,16 @@ class DataConfig:
 
 @dataclass
 class SupervisedConfig:
-    opt_method : str = "L-BFGS-B"
-    max_iter: int = 2000
+    max_iter: int = 100000
     horizon : int = 21
-    lam : float = 1.0
+    lam : float = 5.0
     penalty_type : str = "ce_standard" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
+    train_split : float = 0.75
+    learning_rate : float = 1e-3
+    batch_size : int = 500
+    transition_metric : str = "metric1"  # "metric1": consecutive, "metric2": horizon-based
+    lam_values : List[float] = None
+
+    def __post_init__(self):
+        if self.lam_values is None:
+            self.lam_values = [0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
