@@ -1,18 +1,18 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-# from scipy.stats import mode as scipy_mode
-# from sklearn.linear_model import LogisticRegression
+from scipy.stats import mode as scipy_mode
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 
 from config import DataConfig
-from data_munging import standardize_data
+# from data_munging import features, prices, derive_features, remove_outliers, standardize_data
 # from unsupervised_learning import df_labeled, km, scaler
 
 cfg = DataConfig()
 
 import numpy as np
-# import os
+import os
 
 def build_supervised_regime_dataset(
     df: pd.DataFrame,
@@ -75,7 +75,6 @@ def main():
     split_idx = int(len(X) * 0.75)
 
     X_train = X.iloc[:split_idx]
-    X_train, scaler = standardize_data(X_train)
     X_test = X.iloc[split_idx:]
 
     y_train = y.iloc[:split_idx]
@@ -95,13 +94,10 @@ def main():
 
     clf = SoftmaxRegression(max_iter=100000, eps=1e-6, k=cfg.kmeans_k)
     X_train_np = X_train.to_numpy(dtype=np.float64)
-    X_test_np = scaler.transform(X_test)
-    X_test_np = X_test_np.astype(np.float64)
-    # X_test_np = X_test.to_numpy(dtype=np.float64)
+    X_test_np = X_test.to_numpy(dtype=np.float64)
     y_train_np = y_train.to_numpy(dtype=np.int64)
     y_test_np = y_test.to_numpy(dtype=np.int64)
-    
-    clf.fit(X_train_np, y_train_np, learning_rate=1e-3, batch_size=500)
+    clf.fit(X_train_np, y_train_np, learning_rate=1e-4, batch_size=500)
     
     preds = clf.predict(X_test_np)
     
@@ -207,11 +203,11 @@ class SoftmaxRegression:
             loss = self.cross_entropy_loss(y, probs_full)
             self.loss_history.append(loss)
 
-            if epoch % 10000 == 0:
+            if epoch % 100 == 0:
                 print(f"Epoch {epoch:4d} | Loss: {loss:.6f}")
 
-            if epoch > 0 and abs(self.loss_history[-2] - self.loss_history[-1]) < self.eps: #np.linalg.norm(current_theta - self.theta) < self.eps:
-                break
+            if np.linalg.norm(current_theta - self.theta) < self.eps:
+                break;
 
             
             
