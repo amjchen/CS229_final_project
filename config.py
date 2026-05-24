@@ -47,6 +47,8 @@ class DataConfig:
 class SupervisedConfig:
     max_iter: int = 100000
     horizon : int = 21
+    window_size : int = 64
+    use_window : bool = True
     lam : float = 2.0
     penalty_type : str = "ce_standard" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
     train_split : float = 0.75
