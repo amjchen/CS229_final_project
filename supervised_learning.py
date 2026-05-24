@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import argparse
 from sklearn.metrics import classification_report
 from data_munging import standardize_data
 
@@ -13,7 +14,6 @@ cfg_sup = SupervisedConfig()
 def build_supervised_regime_dataset(
     df: pd.DataFrame,
     target_col: str = "regime",
-    horizon: int = 21
 ):
     """
     Convert labeled regime dataframe into a supervised learning dataset
@@ -39,27 +39,52 @@ def build_supervised_regime_dataset(
     supervised_df : pd.DataFrame
         Full aligned dataframe
     """
-
+    
+    horizon = cfg_sup.horizon
     df = df.copy()
 
-    # yesterday's regime
-    df["regime_lag_1"] = df[target_col].shift(1)
-    # 1 trading week ago
-    df["regime_lag_5"] = df[target_col].shift(5)
+    if cfg_sup.use_window:
+        window_size = cfg_sup.window_size
+        feature_cols = [c for c in df.columns if c != target_col]
 
-    # Predict future regime using current information
-    df["target"] = df[target_col].shift(-horizon)
+        array = df[feature_cols].values
+        n = len(df)
+        labels = df[target_col]
+        x_rows, y_vals, index = [], [], []
+        for i in range(window_size - 1, n - horizon):
+            x_rows.append(array[i - window_size + 1 : i + 1].flatten())
+            y_vals.append(int(labels[i + horizon]))
+            index.append(df.index[i])
+        
+        col_names = [
+            f"{col}_lag{lag}"
+            for lag in range(window_size -1, -1, -1)
+            for col in feature_cols
+        ]
 
-    # Drop Nans created from shifting
-    supervised_df = df.dropna().copy()
+        X = pd.DataFrame(x_rows, index = index, columns = col_names)
+        y = pd.Series(y_vals, index = index, dtype = int)
+        supervised_df = df.loc[index].copy()
+        supervised_df["target"] = y.values
+    else: 
+        # yesterday's regime
+        df["regime_lag_1"] = df[target_col].shift(1)
+        # 1 trading week ago
+        df["regime_lag_5"] = df[target_col].shift(5)
 
-    # For design matrix X
-    # remove current regime label + future target label
-    drop_cols = [target_col, "target"]
-    X = supervised_df.drop(columns=drop_cols)
+        # Predict future regime using current information
+        df["target"] = df[target_col].shift(-horizon)
 
-    # Target
-    y = supervised_df["target"].astype(int)
+        # Drop Nans created from shifting
+        supervised_df = df.dropna().copy()
+
+        # For design matrix X
+        # remove current regime label + future target label
+        drop_cols = [target_col, "target"]
+        X = supervised_df.drop(columns=drop_cols)
+
+        # Target
+        y = supervised_df["target"].astype(int)
 
     return X, y, supervised_df
 
@@ -170,8 +195,13 @@ def print_results(preds_train, supervised_df, y_train, preds, y_test):
     print(f"Metric1 transition accuracy: {m1_acc:.4f} ({m1_n} transitions)")
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--softmax", action = "store_true")
+    parser.add_argument("--gda", action="store_true")
+    args = parser.parse_args()
+
     df_labeled = pd.read_csv(cfg.labeled_output_path, index_col=0, parse_dates=True)
-    X, y, supervised_df = build_supervised_regime_dataset(df=df_labeled, horizon=cfg_sup.horizon)
+    X, y, supervised_df = build_supervised_regime_dataset(df=df_labeled)
     split_idx = int(len(X) * cfg_sup.train_split)
 
     X_train = X.iloc[:split_idx]
@@ -184,102 +214,22 @@ def main():
     X_test_np = scaler.transform(X_test)
     X_test_np = X_test_np.astype(np.float64)
     y_train_np = y_train.to_numpy(dtype=np.int64)
-    # y_test_np = y_test.to_numpy(dtype=np.int64)
 
-    # print("\nTRAIN LABEL DISTRIBUTION")
-    # print(y_train.value_counts().sort_index())
-    # print("\nTEST LABEL DISTRIBUTION")
-    # print(y_test.value_counts().sort_index())
+    if args.softmax:
+        print("SOFTMAX REGRESSION")
+        clf = SoftmaxRegression(max_iter=cfg_sup.max_iter, eps=1e-6, k=cfg.kmeans_k)
+        clf.fit(X_train_np, y_train_np, learning_rate=cfg_sup.learning_rate, batch_size=cfg_sup.batch_size)
+        preds_train = clf.predict(X_train_np)
+        preds = clf.predict(X_test_np)
+        print_results(preds_train, supervised_df, y_train, preds, y_test)
 
-    # transition_rate = (supervised_df["regime"] != supervised_df["target"]).mean()
-    # print(f"Transition rate: {transition_rate:.4f}")
-
-    # X_train, scaler = standardize_data(X_train)
-    # X_train_np = X_train.to_numpy(dtype=np.float64)
-    # X_test_np = scaler.transform(X_test)
-    # X_test_np = X_test_np.astype(np.float64)
-    # y_train_np = y_train.to_numpy(dtype=np.int64)
-    # y_test_np = y_test.to_numpy(dtype=np.int64)
-
-    # # best_lam = cross_validate_lam(X_train_np, y_train_np, cfg_sup.lam_values)
-    # # cfg_sup.lam = best_lam
-
-    # 
-    # print("\nTRAIN RESULTS")
-    # print(classification_report(y_train_np, preds_train))
-
-    # current_regime_train = supervised_df.loc[y_train.index, "regime"]
-    # future_regime_train = y_train
-    # predicted_regime_train = pd.Series(preds_train, index=y_train.index)
-    # transition_mask_train = current_regime_train != future_regime_train
-    # n_transitions_train = transition_mask_train.sum()
-    # correct_transition_preds_train = (
-    #     predicted_regime_train[transition_mask_train] == future_regime_train[transition_mask_train]
-    # ).sum()
-    # print(f"True transitions: {n_transitions_train}")
-    # print(f"Correctly predicted transitions: {correct_transition_preds_train}")
-    # print(f"Metric2 transition accuracy: {correct_transition_preds_train / n_transitions_train:.4f}")
-
-    # m1_mask_tr = y_train_np[1:] != y_train_np[:-1]
-    # m1_n_tr    = m1_mask_tr.sum()
-    # m1_acc_tr  = (preds_train[1:][m1_mask_tr] == y_train_np[1:][m1_mask_tr]).sum() / m1_n_tr
-    # print(f"Metric1 transition accuracy: {m1_acc_tr:.4f} ({m1_n_tr} transitions)")
-
-    # preds = clf.predict(X_test_np)
-    # print("\nTEST RESULTS")
-    # print(classification_report(y_test_np, preds))
-
-    # # Compute transition accuracy for test set
-    # current_regime = supervised_df.loc[y_test.index, "regime"]  # current regime at prediction time t
-    # future_regime = y_test  # future true regime at t+h
-
-    # # Predicted future regime
-    # predicted_regime = pd.Series(preds, index=y_test.index)
-
-    # # true transitions
-    # transition_mask = current_regime != future_regime
-    # n_transitions = transition_mask.sum()
-
-    # # correctly predicted transitions
-    # correct_transition_preds = (
-    #     predicted_regime[transition_mask] == future_regime[transition_mask]
-    # ).sum()
-
-    # transition_accuracy = correct_transition_preds / n_transitions
-
-    # print("Test set results:")
-    # print(f"True transitions: {n_transitions}")
-    # print(f"Correctly predicted transitions: {correct_transition_preds}")
-    # print(f"Metric2 transition accuracy: {transition_accuracy:.4f}")
-
-    # m1_mask = y_test_np[1:] != y_test_np[:-1]
-    # m1_n    = m1_mask.sum()
-    # m1_acc  = (preds[1:][m1_mask] == y_test_np[1:][m1_mask]).sum() / m1_n
-    # print(f"Metric1 transition accuracy: {m1_acc:.4f} ({m1_n} transitions)")
-
-    ####################################################################################
-
-    # Softmax
-    # clf = SoftmaxRegression(max_iter=cfg_sup.max_iter, eps=1e-6, k=cfg.kmeans_k)
-    # clf.fit(X_train_np, y_train_np, learning_rate=cfg_sup.learning_rate, batch_size=cfg_sup.batch_size)
-    # preds_train = clf.predict(X_train_np)
-    # preds = clf.predict(X_test_np)
-    # print("SOFTMAX REGRESSION")
-    # print_results(preds_train, supervised_df, y_train, preds, y_test)
-
-    # clf = GDA_MLE()
-    # clf.fit(X_train_np, y_train_np)
-    # preds_train = clf.predict(X_train_np)
-    # preds = clf.predict(X_test_np)
-    # print("GDA CLOSED FORM MLE SOLUTION")
-    # print_results(preds_train, supervised_df, y_train, preds, y_test)
-
-    clf = GDA_SGD()
-    clf.fit(X_train_np, y_train_np)
-    preds_train = clf.predict(X_train_np)
-    preds = clf.predict(X_test_np)
-    print("GDA SGD")
-    print_results(preds_train, supervised_df, y_train, preds, y_test)
+    if args.gda:
+        print("GAUSSIAN DISCRIMINANT ANALYSIS")
+        clf = GDA_SGD(k=cfg.kmeans_k)
+        clf.fit(X_train_np, y_train_np)
+        preds_train = clf.predict(X_train_np)
+        preds = clf.predict(X_test_np)
+        print_results(preds_train, supervised_df, y_train, preds, y_test)
 
 
 class SoftmaxRegression:
@@ -478,7 +428,7 @@ class GDA_MLE:          # i think this has some stability issues rn, but maybe w
         > clf.fit(x_train, y_train)
         > clf.predict(x_eval)
     """
-    def __init__(self, k=3, verbose=True):
+    def __init__(self, verbose=True):
         """
         Args:
             max_iter: Maximum number of iterations for the solver.
@@ -488,7 +438,7 @@ class GDA_MLE:          # i think this has some stability issues rn, but maybe w
         self.sigma = None
         self.mu = None
         self.phi = None
-        self.k = k
+        self.k = cfg.kmeans_k
         
         # self.max_iter = max_iter
         # self.eps = eps

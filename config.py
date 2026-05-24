@@ -46,7 +46,7 @@ class DataConfig:
 @dataclass
 class SupervisedConfig:
     max_iter: int = 100000
-    horizon : int = 21
+    horizon : int = 1
     window_size : int = 64
     use_window : bool = True
     lam : float = 2.0
