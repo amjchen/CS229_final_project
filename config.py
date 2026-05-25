@@ -17,7 +17,7 @@ class DataConfig:
     winsorize_upper: float = 0.995
 
     kmeans_start_date: str = "2000-01-01"
-    kmeans_k: int = 3
+    kmeans_k: int = 6
     kmeans_k_range: tuple = (2, 13)
     kmeans_smooth_window: int = 42  # ~2 month rolling mode to enforce regime persistence
     # K=4 was tried: produced a 106-day "post-COVID snap-back" regime (Jun-Nov 2020) that
@@ -46,8 +46,8 @@ class DataConfig:
 @dataclass
 class SupervisedConfig:
     max_iter: int = 100000
-    horizon : int = 1
-    window_size : int = 64
+    horizon : int = 21
+    window_size : int = 5
     use_window : bool = True
     lam : float = 2.0
     penalty_type : str = "ce_standard" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty

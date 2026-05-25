@@ -42,6 +42,7 @@ def build_supervised_regime_dataset(
     
     horizon = cfg_sup.horizon
     df = df.copy()
+    df = df.dropna()
 
     if cfg_sup.use_window:
         window_size = cfg_sup.window_size
@@ -52,15 +53,20 @@ def build_supervised_regime_dataset(
         labels = df[target_col]
         x_rows, y_vals, index = [], [], []
         for i in range(window_size - 1, n - horizon):
-            x_rows.append(array[i - window_size + 1 : i + 1].flatten())
+            window = array[i - window_size + 1 : i + 1]
+            # row = window.flatten()  # flattened window
+            row = np.concatenate([window.mean(axis=0), window.std(axis=0), window[-1]])
+            x_rows.append(row)
             y_vals.append(int(labels[i + horizon]))
             index.append(df.index[i])
-        
-        col_names = [
-            f"{col}_lag{lag}"
-            for lag in range(window_size -1, -1, -1)
-            for col in feature_cols
-        ]
+
+        # col_names for flattened window (commented out):
+        # col_names = [f"{col}_lag{lag}" for lag in range(window_size-1, -1, -1) for col in feature_cols]
+        col_names = (
+            [f"{col}_mean" for col in feature_cols] +
+            [f"{col}_std" for col in feature_cols] +
+            [f"{col}_last" for col in feature_cols]
+        )
 
         X = pd.DataFrame(x_rows, index = index, columns = col_names)
         y = pd.Series(y_vals, index = index, dtype = int)
@@ -85,6 +91,10 @@ def build_supervised_regime_dataset(
 
         # Target
         y = supervised_df["target"].astype(int)
+
+    print(f"X shape: {X.shape}")
+    print(f"y shape: {y.shape}")
+    print(f"y distribution:\n{y.value_counts().sort_index()}")
 
     return X, y, supervised_df
 
@@ -322,6 +332,10 @@ class SoftmaxRegression:
         if cfg_sup.penalty_type == "ce_standard":
             transition_indicator = (y[1:] != y[:-1]).astype(float)
             penalty = -cfg_sup.lam * (transition_indicator * log_loss[1:]).sum()
+        elif cfg_sup.penalty_type == "ce_pairwise":
+            transition_indicator = (y[1:] != y[:-1]).astype(float)
+            penalty = -cfg_sup.lam * (transition_indicator * (log_loss[1:] + log_loss[:-1])).sum()
+
         else:
             penalty = 0
 
@@ -342,6 +356,11 @@ class SoftmaxRegression:
             dZ_trans = np.zeros((n, self.k))
             dZ_trans[1:] = transition_indicator[:, None] * (prob[1:] - one_hot[1:])
             penalty_grad = cfg_sup.lam * X.T @ dZ_trans
+        elif cfg_sup.penalty_type == "ce_pairwise":
+            transition_indicator = (y[1:] != y[:-1]).astype(float)
+            term1 = X[1:].T @ (transition_indicator[:, None] * (1 + cfg_sup.lam) * (prob[1:] - one_hot[1:]))
+            term2 = X[:-1].T @ (transition_indicator[:, None] * cfg_sup.lam * (prob[:-1] - one_hot[:-1]))
+            penalty_grad = term1 + term2
         else:
             penalty_grad = 0
 
