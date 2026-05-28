@@ -309,18 +309,6 @@ class SoftmaxRegression:
 
         return new_x
 
-    def cross_entropy_loss(self, y_true, probs):
-        """
-        Mean cross entropy loss with L2 regularization.
-        """
-
-        n_samples = len(y_true)
-        correct_class_probs = probs[np.arange(n_samples), y_true]
-        log_likelihood = -np.log(correct_class_probs + 1e-15)
-        data_loss = np.mean(log_likelihood)
-
-        return data_loss
-
     def ce_loss(self, X, y):
         n = X.shape[0]
         logits = X @ self.theta
@@ -335,7 +323,14 @@ class SoftmaxRegression:
         elif cfg_sup.penalty_type == "ce_pairwise":
             transition_indicator = (y[1:] != y[:-1]).astype(float)
             penalty = -cfg_sup.lam * (transition_indicator * (log_loss[1:] + log_loss[:-1])).sum()
-
+        elif cfg_sup.penalty_type == "margin_bar":
+            transition_indicator = (y[1:] != y[:-1]).astype(float)
+            diff_today_yesterday = np.zeros(n-1)
+            for k in range(1, n):
+                yesterday = y[k-1]
+                today = y[k]
+                diff_today_yesterday[k-1] = cfg.margin + prob[k, yesterday] - prob[k, today]
+            penalty = cfg_sup.lam * (transition_indicator * np.log(1 + np.exp(diff_today_yesterday))).sum()
         else:
             penalty = 0
 
@@ -361,6 +356,26 @@ class SoftmaxRegression:
             term1 = X[1:].T @ (transition_indicator[:, None] * (1 + cfg_sup.lam) * (prob[1:] - one_hot[1:]))
             term2 = X[:-1].T @ (transition_indicator[:, None] * cfg_sup.lam * (prob[:-1] - one_hot[:-1]))
             penalty_grad = term1 + term2
+        elif cfg_sup.penalty_type == "margin_bar":
+            transition_indicator = (y[1:] != y[:-1]).astype(float)
+            diff_today_yesterday = np.zeros(n-1)
+            for k in range(1, n):
+                yesterday = y[k-1]
+                today = y[k]
+                diff_today_yesterday[k-1] = cfg_sup.margin + prob[k, yesterday] - prob[k, today]
+            penalty = cfg_sup.lam * (transition_indicator * np.log(1 + np.exp(diff_today_yesterday))).sum()
+
+            sigmoid = 1.0 / (1.0 + np.exp(-diff_today_yesterday))
+            one_hot_difference = np.zeros((n-1, self.k))
+            for i in range(n-1):
+                one_hot_difference[i, y[i]] += 1.0
+                one_hot_difference[i, y[i+1]] -= 1.0
+            
+            constant = (transition_indicator * sigmoid)[:, None]
+            summing = prob[1:] * (one_hot_difference - (diff_today_yesterday - cfg_sup.margin)[:, None])
+
+            penalty_grad = cfg_sup.lam * X[1:]. T @ (constant * summing)
+
         else:
             penalty_grad = 0
 
