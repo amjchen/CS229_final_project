@@ -48,7 +48,7 @@ class SupervisedConfig:
     max_iter: int = 100000
     horizon : int = 21
     window_size : int = 5
-    use_window : bool = True
+    use_window : bool = False
     lam : float = 2.0
     penalty_type : str = "ce_standard" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
     train_split : float = 0.75
@@ -64,9 +64,10 @@ class SupervisedConfig:
     weight_decay : float = 1e-4
 
     lr_scheduler : str = "cosine"
+    warmup_epochs : int = 50
     min_lr : float = 1e-5
 
-    epochs : int = 100
+    epochs : int = 200
 
 
 

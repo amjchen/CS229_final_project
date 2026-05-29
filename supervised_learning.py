@@ -682,13 +682,24 @@ class Neural_Networks(nn.Module):
         X_matrix = torch.tensor(x, dtype = torch.float32)
         y_vec = torch.tensor(y, dtype = torch.long)
 
-        optimizer = torch.optim.AdamW(self.parameters(), lr = self.cfg_sup.lr, weight_decay = self.cfg_sup_weight_decay)
-        for epoch in range(self.cfg_sup.num_epochs):
+        optimizer = torch.optim.AdamW(self.parameters(), lr = self.cfg_sup.learning_rate, weight_decay = self.cfg_sup.weight_decay)
+        warmup_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, 
+                                                             start_factor = 0.01, 
+                                                             end_factor=1.0, 
+                                                             total_iters = self.cfg_sup.warmup_epochs)
+        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, 
+                                                                      T_max = self.cfg_sup.epochs - self.cfg_sup.warmup_epochs, 
+                                                                      eta_min = self.cfg_sup.min_lr)
+
+        scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_scheduler, cosine_scheduler], milestones = [self.cfg_sup.warmup_epochs])
+
+        for epoch in range(self.cfg_sup.epochs):
             optimizer.zero_grad()
             score = self.forward(X_matrix)
             loss = self.loss_function(score, y_vec)
             loss.backward()
             optimizer.step()
+            scheduler.step()
 
     def predict(self, x_new):
         self.eval()
