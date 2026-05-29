@@ -11,6 +11,7 @@ from config import DataConfig, SupervisedConfig
 
 cfg = DataConfig()
 cfg_sup = SupervisedConfig()
+fold_results = []
 
 
 def build_supervised_regime_dataset(
@@ -174,6 +175,7 @@ def print_results(preds_train, supervised_df, y_train, preds, y_test):
 
     m1_mask_tr = y_train_np[1:] != y_train_np[:-1]
     m1_n_tr    = m1_mask_tr.sum()
+    m1_acc_tr = None
     if m1_n_tr > 0: 
         m1_acc_tr  = (preds_train[1:][m1_mask_tr] == y_train_np[1:][m1_mask_tr]).sum() / m1_n_tr
 
@@ -214,9 +216,23 @@ def print_results(preds_train, supervised_df, y_train, preds, y_test):
     m1_mask = y_test_np[1:] != y_test_np[:-1]
     m1_n    = m1_mask.sum()
 
+    m1_acc = None
     if m1_n > 0: 
         m1_acc  = (preds[1:][m1_mask] == y_test_np[1:][m1_mask]).sum() / m1_n
         print(f"Metric1 transition accuracy: {m1_acc:.4f} ({m1_n} transitions)")
+
+    train_accuracy = (preds_train == y_train_np).mean()
+    test_accuracy = (preds == y_test_np).mean()
+    fold_results.append({
+        "train_accuracy" : train_accuracy,
+        "test_accuracy" : test_accuracy,
+
+        "train_m1" : m1_acc_tr,
+        "test_m1" : m1_acc,
+
+        "train_m2": correct_transition_preds_train / n_transitions_train if n_transitions_train > 0 else None,
+        "test_m2" : transition_accuracy
+    })
 
 def main():
     parser = argparse.ArgumentParser()
@@ -280,7 +296,52 @@ def main():
                 preds = clf.predict(X_test_np)
 
                 print_results(preds_train, supervised_df, y_train, preds, y_test)
+        
+        train_sum = 0
+        test_sum = 0
 
+        train_m1_sum = 0
+        test_m1_sum = 0
+
+        train_m2_sum = 0
+        test_m2_sum = 0
+
+        c1, c2, c3, c4, c5, c6 = 0, 0, 0, 0, 0, 0
+
+        for fold in fold_results: 
+            if fold['train_accuracy'] is not None:
+                train_sum += fold["train_accuracy"]
+                c1 += 1
+            
+            if fold["test_accuracy"] is not None:
+                test_sum += fold["test_accuracy"]
+                c2 += 1
+            
+            if fold["train_m1"] is not None: 
+                train_m1_sum += fold["train_m1"]
+                c3 += 1
+            
+            if fold["test_m1"] is not None:
+                test_m1_sum += fold["test_m1"]
+                c4 += 1 
+
+            if fold["train_m2"] is not None:
+                train_m2_sum += fold["train_m2"]
+                c5 += 1
+            
+            if fold["test_m2"] is not None:
+                test_m2_sum += fold["test_m2"]
+                c6 += 1
+            
+        print(f"\n===== WALK-FORWARD SUMMARY ({folds} folds) =====")
+        print(f"Avg train accuracy : {(train_sum / c1):.4f}")
+        print(f"Avg test accuracy  : {(test_sum / c2):.4f}")
+        print(f"Avg train M1       : {(train_m1_sum / c3):.4f}")
+        print(f"Avg test M1        : {(test_m1_sum / c4):.4f}")
+        print(f"Avg train M2       : {(train_m2_sum / c5):.4f}")
+        print(f"Avg test M2        : {(test_m2_sum / c6):.4f}")
+
+ 
 
     else: 
         split_idx = int(len(X) * cfg_sup.train_split)
