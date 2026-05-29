@@ -244,6 +244,20 @@ def main():
         preds = clf.predict(X_test_np)
         print_results(preds_train, supervised_df, y_train, preds, y_test)
 
+    if args.neuralnet:
+        print("NEURAL NETWORK")
+        dim_in = X_train_np.shape[1]
+        k = cfg.kmeans_k
+        clf = Neural_Networks(dim_in, k, cfg_sup)
+        clf.setup_nn()
+
+        clf.fit(X_train_np, y_train_np)
+
+        preds_train = clf.predict(X_train_np)
+        preds = clf.predict(X_test_np)
+
+        print_results(preds_train, supervised_df, y_train, preds, y_test)
+
 
 class SoftmaxRegression:
     """Softmax regression with SGD as the solver.
