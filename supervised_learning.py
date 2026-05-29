@@ -146,6 +146,7 @@ def print_results(preds_train, supervised_df, y_train, preds, y_test):
     y_test_np =  y_test.to_numpy(dtype=np.int64)
     y_train_np = y_train.to_numpy(dtype=np.int64)
 
+
     # print("\nTRAIN LABEL DISTRIBUTION")
     # print(y_train.value_counts().sort_index())
     # print("\nTEST LABEL DISTRIBUTION")
@@ -165,14 +166,18 @@ def print_results(preds_train, supervised_df, y_train, preds, y_test):
     correct_transition_preds_train = (
         predicted_regime_train[transition_mask_train] == future_regime_train[transition_mask_train]
     ).sum()
+
     print(f"True transitions: {n_transitions_train}")
     print(f"Correctly predicted transitions: {correct_transition_preds_train}")
-    print(f"Metric2 transition accuracy: {correct_transition_preds_train / n_transitions_train:.4f}")
+    if n_transitions_train > 0: 
+        print(f"Metric2 transition accuracy: {correct_transition_preds_train / n_transitions_train:.4f}")
 
     m1_mask_tr = y_train_np[1:] != y_train_np[:-1]
     m1_n_tr    = m1_mask_tr.sum()
-    m1_acc_tr  = (preds_train[1:][m1_mask_tr] == y_train_np[1:][m1_mask_tr]).sum() / m1_n_tr
-    print(f"Metric1 transition accuracy: {m1_acc_tr:.4f} ({m1_n_tr} transitions)")
+    if m1_n_tr > 0: 
+        m1_acc_tr  = (preds_train[1:][m1_mask_tr] == y_train_np[1:][m1_mask_tr]).sum() / m1_n_tr
+
+        print(f"Metric1 transition accuracy: {m1_acc_tr:.4f} ({m1_n_tr} transitions)")
 
     # preds = clf.predict(X_test_np)
     print("\nTEST RESULTS")
@@ -189,6 +194,11 @@ def print_results(preds_train, supervised_df, y_train, preds, y_test):
     transition_mask = current_regime != future_regime
     n_transitions = transition_mask.sum()
 
+    if n_transitions == 0:
+        print("No transition in test window -- skipping")
+        return
+
+
     # correctly predicted transitions
     correct_transition_preds = (
         predicted_regime[transition_mask] == future_regime[transition_mask]
@@ -203,8 +213,10 @@ def print_results(preds_train, supervised_df, y_train, preds, y_test):
 
     m1_mask = y_test_np[1:] != y_test_np[:-1]
     m1_n    = m1_mask.sum()
-    m1_acc  = (preds[1:][m1_mask] == y_test_np[1:][m1_mask]).sum() / m1_n
-    print(f"Metric1 transition accuracy: {m1_acc:.4f} ({m1_n} transitions)")
+
+    if m1_n > 0: 
+        m1_acc  = (preds[1:][m1_mask] == y_test_np[1:][m1_mask]).sum() / m1_n
+        print(f"Metric1 transition accuracy: {m1_acc:.4f} ({m1_n} transitions)")
 
 def main():
     parser = argparse.ArgumentParser()
@@ -215,48 +227,103 @@ def main():
 
     df_labeled = pd.read_csv(cfg.labeled_output_path, index_col=0, parse_dates=True)
     X, y, supervised_df = build_supervised_regime_dataset(df=df_labeled)
-    split_idx = int(len(X) * cfg_sup.train_split)
 
-    X_train = X.iloc[:split_idx]
-    X_test = X.iloc[split_idx:]
-    y_train = y.iloc[:split_idx]
-    y_test = y.iloc[split_idx:]
+    if cfg_sup.testing_method == "walk_forward":
+        n = len(X)
+        minimum_training_set = int(n / 2)
+        folds = cfg_sup.folds
+        fold_size = (n - minimum_training_set) // folds
 
-    X_train, scaler = standardize_data(X_train)
-    X_train_np = X_train.to_numpy(dtype=np.float64)
-    X_test_np = scaler.transform(X_test)
-    X_test_np = X_test_np.astype(np.float64)
-    y_train_np = y_train.to_numpy(dtype=np.int64)
+        for i in range(folds):
+            beg_test_idx = minimum_training_set + i * fold_size
+            if i < folds - 1:
+                end_test_idx = beg_test_idx + fold_size
+            else: 
+                end_test_idx = n
+            
+            X_fold, scaler = standardize_data(X.iloc[:beg_test_idx])
+            X_train_np = X_fold.to_numpy(dtype = np.float64)
+            X_test_np = scaler.transform(X.iloc[beg_test_idx:end_test_idx]).astype(np.float64)
+            y_train = y.iloc[:beg_test_idx]
+            y_test = y.iloc[beg_test_idx:end_test_idx]
+            y_train_np = y_train.to_numpy(dtype = np.int64)
 
-    if args.softmax:
-        print("SOFTMAX REGRESSION")
-        clf = SoftmaxRegression(max_iter=cfg_sup.max_iter, eps=1e-6, k=cfg.kmeans_k)
-        clf.fit(X_train_np, y_train_np, learning_rate=cfg_sup.learning_rate, batch_size=cfg_sup.batch_size)
-        preds_train = clf.predict(X_train_np)
-        preds = clf.predict(X_test_np)
-        print_results(preds_train, supervised_df, y_train, preds, y_test)
+            print(f"\n===== Fold {i+1} | train [0:{beg_test_idx}]  test [{beg_test_idx}:{end_test_idx}] =====")
 
-    if args.gda:
-        print("GAUSSIAN DISCRIMINANT ANALYSIS")
-        clf = GDA_SGD(k=cfg.kmeans_k)
-        clf.fit(X_train_np, y_train_np)
-        preds_train = clf.predict(X_train_np)
-        preds = clf.predict(X_test_np)
-        print_results(preds_train, supervised_df, y_train, preds, y_test)
 
-    if args.neuralnet:
-        print("NEURAL NETWORK")
-        dim_in = X_train_np.shape[1]
-        k = cfg.kmeans_k
-        clf = Neural_Networks(dim_in, k, cfg_sup)
-        clf.setup_nn()
+            if args.softmax:
+                print("SOFTMAX REGRESSION")
+                clf = SoftmaxRegression(max_iter=cfg_sup.max_iter, eps=1e-6, k=cfg.kmeans_k)
+                clf.fit(X_train_np, y_train_np, learning_rate=cfg_sup.learning_rate, batch_size=cfg_sup.batch_size)
+                preds_train = clf.predict(X_train_np)
+                preds = clf.predict(X_test_np)
+                print_results(preds_train, supervised_df, y_train, preds, y_test)
 
-        clf.fit(X_train_np, y_train_np)
+            if args.gda:
+                print("GAUSSIAN DISCRIMINANT ANALYSIS")
+                clf = GDA_SGD(k=cfg.kmeans_k)
+                clf.fit(X_train_np, y_train_np)
+                preds_train = clf.predict(X_train_np)
+                preds = clf.predict(X_test_np)
+                print_results(preds_train, supervised_df, y_train, preds, y_test)
 
-        preds_train = clf.predict(X_train_np)
-        preds = clf.predict(X_test_np)
+            if args.neuralnet:
+                print("NEURAL NETWORK")
+                dim_in = X_train_np.shape[1]
+                k = cfg.kmeans_k
+                clf = Neural_Networks(dim_in, k, cfg_sup)
+                clf.setup_nn()
 
-        print_results(preds_train, supervised_df, y_train, preds, y_test)
+                clf.fit(X_train_np, y_train_np)
+
+                preds_train = clf.predict(X_train_np)
+                preds = clf.predict(X_test_np)
+
+                print_results(preds_train, supervised_df, y_train, preds, y_test)
+
+
+    else: 
+        split_idx = int(len(X) * cfg_sup.train_split)
+        X_train = X.iloc[:split_idx]
+        X_test = X.iloc[split_idx:]
+        y_train = y.iloc[:split_idx]
+        y_test = y.iloc[split_idx:]
+    
+        X_train, scaler = standardize_data(X_train)
+        X_train_np = X_train.to_numpy(dtype=np.float64)
+        X_test_np = scaler.transform(X_test)
+        X_test_np = X_test_np.astype(np.float64)
+        y_train_np = y_train.to_numpy(dtype=np.int64)
+
+        if args.softmax:
+            print("SOFTMAX REGRESSION")
+            clf = SoftmaxRegression(max_iter=cfg_sup.max_iter, eps=1e-6, k=cfg.kmeans_k)
+            clf.fit(X_train_np, y_train_np, learning_rate=cfg_sup.learning_rate, batch_size=cfg_sup.batch_size)
+            preds_train = clf.predict(X_train_np)
+            preds = clf.predict(X_test_np)
+            print_results(preds_train, supervised_df, y_train, preds, y_test)
+
+        if args.gda:
+            print("GAUSSIAN DISCRIMINANT ANALYSIS")
+            clf = GDA_SGD(k=cfg.kmeans_k)
+            clf.fit(X_train_np, y_train_np)
+            preds_train = clf.predict(X_train_np)
+            preds = clf.predict(X_test_np)
+            print_results(preds_train, supervised_df, y_train, preds, y_test)
+
+        if args.neuralnet:
+            print("NEURAL NETWORK")
+            dim_in = X_train_np.shape[1]
+            k = cfg.kmeans_k
+            clf = Neural_Networks(dim_in, k, cfg_sup)
+            clf.setup_nn()
+
+            clf.fit(X_train_np, y_train_np)
+
+            preds_train = clf.predict(X_train_np)
+            preds = clf.predict(X_test_np)
+
+            print_results(preds_train, supervised_df, y_train, preds, y_test)
 
 
 class SoftmaxRegression:
@@ -304,7 +371,7 @@ class SoftmaxRegression:
             loss = self.ce_loss(x_inter, y)
             self.loss_history.append(loss)
 
-            if epoch % 10000 == 0:
+            if epoch % 1000 == 0:
                 print(f"Epoch {epoch:4d} | Loss: {loss:.6f}")
 
             if epoch > 0 and abs(self.loss_history[-2] - self.loss_history[-1]) < self.eps:

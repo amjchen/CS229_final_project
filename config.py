@@ -17,7 +17,7 @@ class DataConfig:
     winsorize_upper: float = 0.995
 
     kmeans_start_date: str = "2000-01-01"
-    kmeans_k: int = 6
+    kmeans_k: int = 3
     kmeans_k_range: tuple = (2, 13)
     kmeans_smooth_window: int = 42  # ~2 month rolling mode to enforce regime persistence
     # K=4 was tried: produced a 106-day "post-COVID snap-back" regime (Jun-Nov 2020) that
@@ -45,23 +45,32 @@ class DataConfig:
 
 @dataclass
 class SupervisedConfig:
-    max_iter: int = 100000
-    horizon : int = 21
+    #Data parameters
     window_size : int = 5
     use_window : bool = False
-    lam : float = 2.0
-    penalty_type : str = "ce_standard" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
+    penalty_type : str = "" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
+
+    #Data manipulation
     train_split : float = 0.75
-    learning_rate : float = 1e-3
     batch_size : int = 500
+    testing_method : str = "walk_forward" #vs "standard"
+    folds : int = 3
+    horizon : int = 21
+
+
+    lam : float = 2.0
     lam_values : List[float] = None
     margin : float = 0.5
+
+    #Softmax Parameters:
+    max_iter: int = 10000
 
 
     #Neural Network Parameters: 
     hidden_layer_neurons : tuple = (32, 16)
     dropout_prob : float = 0.1
     weight_decay : float = 1e-4
+    learning_rate : float = 1e-3
 
     lr_scheduler : str = "cosine"
     warmup_epochs : int = 50
