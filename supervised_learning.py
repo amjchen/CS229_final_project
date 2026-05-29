@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import argparse
+import torch
+import torch.nn as nn
 from sklearn.metrics import classification_report
 from data_munging import standardize_data
 
@@ -208,6 +210,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--softmax", action = "store_true")
     parser.add_argument("--gda", action="store_true")
+    parser.add_argument("--neuralnet", action = "store_true")
     args = parser.parse_args()
 
     df_labeled = pd.read_csv(cfg.labeled_output_path, index_col=0, parse_dates=True)
@@ -331,6 +334,13 @@ class SoftmaxRegression:
                 today = y[k]
                 diff_today_yesterday[k-1] = cfg.margin + prob[k, yesterday] - prob[k, today]
             penalty = cfg_sup.lam * (transition_indicator * np.log(1 + np.exp(diff_today_yesterday))).sum()
+        elif cfg_sup.penalty_type == "distance":
+            transition_indicator = (y[1:] != y[:-1]).astype(float)
+            inside = np.zeros(n-1)
+            for i in range(n-1):
+                for k in range(cfg.kmeans_k):
+                    inside[i] += ((y[i+1] - k) ** 2) * prob[i+1, k]
+            penalty = cfg_sup.lam *(transition_indicator * inside).sum()
         else:
             penalty = 0
 
@@ -375,7 +385,26 @@ class SoftmaxRegression:
             summing = prob[1:] * (one_hot_difference - (diff_today_yesterday - cfg_sup.margin)[:, None])
 
             penalty_grad = cfg_sup.lam * X[1:]. T @ (constant * summing)
+        elif cfg_sup.penalty_type == "distance":
+            transition_indicator = (y[1:] != y[:-1]).astype(float)
+            inside = np.zeros(n-1)
+            for i in range(n-1):
+                for k in range(cfg.kmeans_k):
+                    inside[i] += ((y[i+1] - k) ** 2) * prob[i+1, k]
 
+            penalty_grad = np.zeros((X.shape[1], self.k))
+            one_hot_y = self.one_hot(y)
+            c = np.zeros(cfg.kmeans_k)
+            for k in range(cfg.kmeans_k):
+                c[k] = k
+
+            for i in range(n - 1):
+                if transition_indicator[i]:
+                    for k in range(self.k):
+                        ctyi = np.dot(c, one_hot_y[i + 1])
+                        weight = cfg_sup.lam * prob[i + 1, k] *((ctyi - c[k]) ** 2 - inside[i])
+                        penalty_grad[:, k] += weight * X[i+1]
+            
         else:
             penalty_grad = 0
 
@@ -547,6 +576,121 @@ class GDA_MLE:          # i think this has some stability issues rn, but maybe w
         return np.argmax(log_posteriors, axis=1)
         # *** END CODE HERE ***
 
+
+class Neural_Networks(nn.Module):
+    def __init__(self, dim_in, k, cfg_sup):
+        super().__init__()
+
+        self.dim_in = dim_in
+        self.k = k
+        self.cfg_sup = cfg_sup
+
+    def setup_nn(self):
+        layers = []
+        last_d = self.dim_in
+
+        for dim in self.cfg_sup.hidden_layer_neurons:
+            MM = nn.Linear(last_d, dim)
+            layers.append(MM)
+
+            activation = nn.ReLU()
+            layers.append(activation)
+
+            dropout = nn.Dropout(self.cfg_sup.dropout_prob)
+            layers.append(dropout)
+
+            last_d = dim
+
+        MM_out = nn.Linear(last_d, self.k)
+        layers.append(MM_out)
+
+        self.net = nn.Sequential(*layers)
+    
+    def forward(self, x):
+        return self.net(x)
+    
+    def loss_function(self, score, y): 
+        n = score.shape[0]
+
+        #Changing logit scores to probabilites through softmax
+        numerator = torch.exp(score)
+        denominator = numerator.sum(dim = 1, keepdim= True)
+        prob = numerator / denominator
+
+        ground_lab = []
+        for i in range(n):
+            ground_lab.append(prob[i, y[i]])
+        ground_lab = torch.stack(ground_lab)
+
+        log_loss = torch.log(ground_lab + 1e-12)
+        loss = -log_loss.sum()
+
+        if self.cfg_sup.penalty_type == "ce_standard":
+            transition_indicator = (y[1:] != y[:-1]).float()
+            penalty = -self.cfg_sup.lam * (transition_indicator * log_loss[1:]).sum()
+        elif self.cfg_sup.penalty_type == "ce_pairwise":
+            transition_indicator = (y[1:] != y[:-1]).float()
+            penalty = -self.cfg_sup.lam * (transition_indicator * (log_loss[1:] + log_loss[:-1])).sum()
+        elif self.cfg_sup.penalty_type == "margin_bar":
+            transition_indicator = (y[1:] != y[:-1]).float()
+            diff_today_yesterday = []
+
+            for k in range(1, n):
+                yest_prb = prob[k, y[k-1]]
+                today_prb = prob[k, y[k]]
+
+                diff = self.cfg_sup.margin + yest_prb - today_prb
+                diff_today_yesterday.append(diff)
+
+            stacked_diff = torch.stack(diff_today_yesterday)
+            penalty = self.cfg_sup.lam * (transition_indicator * (torch.log(1 + torch.exp(stacked_diff)))).sum()
+
+        elif self.cfg_sup.penalty_type == "distance":
+            transition_indicator = (y[1:] != y[:-1]).float()
+            inside = []
+            for i in range(n-1):
+                temp = 0.0
+                for k in range(self.k):
+                    temp += (y[i + 1] - k) ** 2 * prob[i+1,k]
+                
+                inside.append(temp)
+            
+            inside = torch.stack(inside)
+            penalty = self.cfg_sup.lam * (transition_indicator * inside).sum()
+
+        else:
+            penalty = 0
+
+        return loss + penalty
+
+    def fit(self, x, y):
+        self.train()
+        X_matrix = torch.tensor(x, dtype = torch.float32)
+        y_vec = torch.tensor(y, dtype = torch.long)
+
+        optimizer = torch.optim.AdamW(self.parameters(), lr = self.cfg_sup.lr, weight_decay = self.cfg_sup_weight_decay)
+        for epoch in range(self.cfg_sup.num_epochs):
+            optimizer.zero_grad()
+            score = self.forward(X_matrix)
+            loss = self.loss_function(score, y_vec)
+            loss.backward()
+            optimizer.step()
+
+    def predict(self, x_new):
+        self.eval()
+        X_mat_new = torch.tensor(x_new, dtype = torch.float32)
+
+        score = self.forward(X_mat_new)
+
+        numerator = torch.exp(score)
+        denominator = numerator.sum(dim = 1, keepdim = True)
+        softmax_x_prob = numerator / denominator
+
+        predicted_y = torch.argmax(softmax_x_prob, dim = 1)
+        y_numpy = predicted_y.detach().numpy()
+    
+        return y_numpy
+        
 
 
 # class GDA_SGD:

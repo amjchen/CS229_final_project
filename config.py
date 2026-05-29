@@ -55,6 +55,21 @@ class SupervisedConfig:
     learning_rate : float = 1e-3
     batch_size : int = 500
     lam_values : List[float] = None
+    margin : float = 0.5
+
+
+    #Neural Network Parameters: 
+    hidden_layer_neurons : tuple = (32, 16)
+    dropout_prob : float = 0.1
+    weight_decay : float = 1e-4
+
+    lr_scheduler : str = "cosine"
+    min_lr : float = 1e-5
+
+    epochs : int = 100
+
+
+
 
     def __post_init__(self):
         if self.lam_values is None:
