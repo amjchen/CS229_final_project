@@ -48,7 +48,7 @@ class SupervisedConfig:
     #Data parameters
     window_size : int = 5
     use_window : bool = False
-    penalty_type : str = "" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
+    penalty_type : str = "ce_standard" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
 
     #Data manipulation
     train_split : float = 0.75
@@ -79,8 +79,6 @@ class SupervisedConfig:
     epochs : int = 200
 
 
-
-
     def __post_init__(self):
         if self.lam_values is None:
-            self.lam_values = [0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+            self.lam_values =  [5.0, 10.0, 15.0, 20.0, 30.0, 50.0, 75.0, 100.0]

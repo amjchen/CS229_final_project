@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import argparse
 import torch
 import torch.nn as nn
+import contextlib
+import io
 from sklearn.metrics import classification_report
 from data_munging import standardize_data
 
@@ -102,45 +104,7 @@ def build_supervised_regime_dataset(
     return X, y, supervised_df
 
 
-# def cross_validate_lam(X_train_np, y_train_np, lam_values, n_splits=5):
-#     n = len(X_train_np)
-#     fold_size = n // (n_splits + 1)
-#     best_lam = lam_values[0]
-#     best_score = -np.inf
-#     for lam in lam_values:
-#         cfg_sup.lam = lam
-#         fold_scores = []
-#         for fold in range(1, n_splits + 1):
-#             train_end = fold * fold_size
-#             val_end = min(train_end + fold_size, n)
-#             X_fold_train = X_train_np[:train_end]
-#             y_fold_train = y_train_np[:train_end]
-#             X_fold_val   = X_train_np[train_end:val_end]
-#             y_fold_val   = y_train_np[train_end:val_end]
-#             clf = SoftmaxRegression(max_iter=cfg_sup.max_iter, eps=1e-6, k=cfg.kmeans_k)
-#             clf.fit(X_fold_train, y_fold_train,
-#                     learning_rate=cfg_sup.learning_rate, batch_size=cfg_sup.batch_size)
-#             preds_val = clf.predict(X_fold_val)
-#             if cfg_sup.transition_metric == "metric2":
-#                 h = cfg_sup.horizon
-#                 transition_mask = y_fold_val[h:] != y_fold_val[:-h]
-#                 preds_eval = preds_val[h:]
-#                 y_eval = y_fold_val[h:]
-#             else:
-#                 transition_mask = y_fold_val[1:] != y_fold_val[:-1]
-#                 preds_eval = preds_val[1:]
-#                 y_eval = y_fold_val[1:]
-#             n_trans = transition_mask.sum()
-#             if n_trans > 0:
-#                 correct = (preds_eval[transition_mask] == y_eval[transition_mask]).sum()
-#                 fold_scores.append(correct / n_trans)
-#         avg_score = np.mean(fold_scores) if fold_scores else 0.0
-#         print(f"lam={lam:.3f} | avg {cfg_sup.transition_metric} accuracy: {avg_score:.4f}")
-#         if avg_score > best_score:
-#             best_score = avg_score
-#             best_lam = lam
-#     print(f"\nBest lam: {best_lam} ({cfg_sup.transition_metric} accuracy: {best_score:.4f})")
-#     return best_lam
+
 
 
 def print_results(preds_train, supervised_df, y_train, preds, y_test):
@@ -234,15 +198,77 @@ def print_results(preds_train, supervised_df, y_train, preds, y_test):
         "test_m2" : transition_accuracy
     })
 
+def CV_for_lambda(X, y, model_type):
+    n = len(X)
+    split = n // 2
+
+    train_part_X = X.iloc[:split]
+    X_train, scaler = standardize_data(train_part_X)
+    X_train_np = X_train.to_numpy(dtype = np.float64)
+    X_test_np = scaler.transform(X.iloc[split:]).astype(np.float64)
+
+    y_train = y.iloc[:split]
+    y_test = y.iloc[split:]
+
+    y_train_np = y_train.to_numpy(dtype = np.int64)
+    y_test_np = y_test.to_numpy(dtype = np.int64)
+
+    global_best_lambda = cfg_sup.lam_values[0]
+    global_best_score = -np.inf
+    print(f"\n Tuning lambda | model = {model_type} penalty = {cfg_sup.penalty_type}")
+
+    for lmd in cfg_sup.lam_values:
+        cfg_sup.lam = lmd
+        if model_type == "softmax":
+            clf = SoftmaxRegression(max_iter = cfg_sup.max_iter, eps = 1e-6, k = cfg.kmeans_k)
+            clf.fit(X_train_np, y_train_np, learning_rate = cfg_sup.learning_rate, batch_size = cfg_sup.batch_size)
+        elif model_type == "gda":
+            clf = GDA_SGD(k = cfg.kmeans_k)
+            clf.fit(X_train_np, y_train_np)
+        elif model_type == "neuralnet":
+            x_shape = X_train_np.shape[1]
+            clf = Neural_Networks(x_shape, cfg.kmeans_k, cfg_sup)
+            clf.setup_nn()
+            clf.fit(X_train_np, y_train_np)        
+
+        predicted_values = clf.predict(X_test_np)
+        indicator = y_test_np[1:] != y_test_np[:-1]
+        total_m1 = indicator.sum()
+
+        if total_m1 != 0:
+            summed = (predicted_values[1:][indicator] == y_test_np[1:][indicator]).sum()
+            score = summed / total_m1
+        else:
+            score = 0.0
+        
+        print(f"M1 value for lambda {lmd} = {score:.4f}")
+        if score > global_best_score:
+            global_best_score = score
+            best_lam = lmd
+    
+    print(f"Best Lambda = {best_lam}")
+
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--softmax", action = "store_true")
     parser.add_argument("--gda", action="store_true")
     parser.add_argument("--neuralnet", action = "store_true")
+    parser.add_argument("--tunelambda", action = "store_true")
     args = parser.parse_args()
 
     df_labeled = pd.read_csv(cfg.labeled_output_path, index_col=0, parse_dates=True)
     X, y, supervised_df = build_supervised_regime_dataset(df=df_labeled)
+
+    if args.tunelambda:
+        if args.softmax: 
+            model_type = "softmax"
+        elif args.gda:
+            model_type = "gda"
+        elif args.neuralnet:
+            model_type = "neuralnet"
+        CV_for_lambda(X, y, model_type)
 
     if cfg_sup.testing_method == "walk_forward":
         n = len(X)
