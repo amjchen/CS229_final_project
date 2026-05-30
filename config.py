@@ -46,17 +46,14 @@ class DataConfig:
 @dataclass
 class SupervisedConfig:
     #Data parameters
-    window_size : int = 5
-    use_window : bool = False
     penalty_type : str = "ce_standard" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
-
-    #Data manipulation
-    train_split : float = 0.75
-    batch_size : int = 500
-    testing_method : str = "walk_forward" #vs "standard"
-    folds : int = 3
+    evaluation_metric : int = 1 #1 or 2 for m1 or m2
     horizon : int = 21
 
+    train_split : float = 0.75
+    batch_size : int = 500
+    testing_method : str = "standard" # "walk forward" vs "standard"
+    folds : int = 3
 
     lam : float = 2.0
     lam_values : List[float] = None
@@ -66,7 +63,7 @@ class SupervisedConfig:
     max_iter: int = 10000
 
 
-    #Neural Network Parameters: 
+    #Neural Network and CNN Parameters: 
     hidden_layer_neurons : tuple = (32, 16)
     dropout_prob : float = 0.1
     weight_decay : float = 1e-4
@@ -77,6 +74,11 @@ class SupervisedConfig:
     min_lr : float = 1e-5
 
     epochs : int = 200
+
+    window_size : int = 21     #Length of the window 
+    use_window : bool = False
+    num_filters : int = 16
+    kernel_size : int = 3      #Number of steps to look ahead in the filter
 
 
     def __post_init__(self):

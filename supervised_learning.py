@@ -18,6 +18,7 @@ fold_results = []
 
 def build_supervised_regime_dataset(
     df: pd.DataFrame,
+    cfg_sup,
     target_col: str = "regime",
 ):
     """
@@ -30,8 +31,6 @@ def build_supervised_regime_dataset(
         Output of build_labels()
     target_col : str
         Target column to forecast
-    horizon : int
-        Forecast horizon in trading days
     add_regime_lags : bool
         Whether to include lagged regime states as predictors
 
@@ -44,39 +43,60 @@ def build_supervised_regime_dataset(
     supervised_df : pd.DataFrame
         Full aligned dataframe
     """
-    
     horizon = cfg_sup.horizon
     df = df.copy()
     df = df.dropna()
 
     if cfg_sup.use_window:
+        
         window_size = cfg_sup.window_size
-        feature_cols = [c for c in df.columns if c != target_col]
-
+        feature_cols = []
+        for c in df.columns:
+            if c != target_col:
+                feature_cols.append(c)
+        
         array = df[feature_cols].values
         n = len(df)
         labels = df[target_col]
-        x_rows, y_vals, index = [], [], []
-        for i in range(window_size - 1, n - horizon):
-            window = array[i - window_size + 1 : i + 1]
-            # row = window.flatten()  # flattened window
-            row = np.concatenate([window.mean(axis=0), window.std(axis=0), window[-1]])
-            x_rows.append(row)
-            y_vals.append(int(labels[i + horizon]))
+
+        split_index = int(n * cfg_sup.train_split)
+        train_array = array[:split_index]
+
+        mu = train_array.mean(axis  = 0)
+        stdev = train_array.std(axis = 0)
+        
+        array = (array - mu) / stdev
+
+
+        x_vals = []
+        y_vals = []
+        index = []
+
+        if cfg_sup.evaluation_metric == 2: 
+            last_i = n - horizon
+        else:
+            last_i = n
+
+        for i in range(window_size - 1, last_i):
+            start = i - window_size + 1
+            end = i + 1
+            window = array[start:end, :]
+            x_vals.append(window)
+
+            if cfg_sup.evaluation_metric == 2:
+                y_loc = i + horizon
+            else:
+                y_loc = i
+
+            y_vals.append(int(labels.iloc[y_loc]))
             index.append(df.index[i])
 
-        # col_names for flattened window (commented out):
-        # col_names = [f"{col}_lag{lag}" for lag in range(window_size-1, -1, -1) for col in feature_cols]
-        col_names = (
-            [f"{col}_mean" for col in feature_cols] +
-            [f"{col}_std" for col in feature_cols] +
-            [f"{col}_last" for col in feature_cols]
-        )
-
-        X = pd.DataFrame(x_rows, index = index, columns = col_names)
+        X = np.array(x_vals)
         y = pd.Series(y_vals, index = index, dtype = int)
         supervised_df = df.loc[index].copy()
         supervised_df["target"] = y.values
+
+
     else: 
         # yesterday's regime
         df["regime_lag_1"] = df[target_col].shift(1)
@@ -84,7 +104,10 @@ def build_supervised_regime_dataset(
         df["regime_lag_5"] = df[target_col].shift(5)
 
         # Predict future regime using current information
-        df["target"] = df[target_col].shift(-horizon)
+        if cfg_sup.evaluation_metric == 2:
+            df["target"] = df[target_col].shift(-horizon)
+        else:
+            df["target"] = df[target_col]
 
         # Drop Nans created from shifting
         supervised_df = df.dropna().copy()
@@ -107,86 +130,87 @@ def build_supervised_regime_dataset(
 
 
 
-def print_results(preds_train, supervised_df, y_train, preds, y_test):
+def print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup):
     y_test_np =  y_test.to_numpy(dtype=np.int64)
     y_train_np = y_train.to_numpy(dtype=np.int64)
-
-
-    # print("\nTRAIN LABEL DISTRIBUTION")
-    # print(y_train.value_counts().sort_index())
-    # print("\nTEST LABEL DISTRIBUTION")
-    # print(y_test.value_counts().sort_index())
-
-    # transition_rate = (supervised_df["regime"] != supervised_df["target"]).mean()
-    # print(f"Transition rate: {transition_rate:.4f}")
 
     print("\nTRAIN RESULTS")
     print(classification_report(y_train_np, preds_train))
 
-    current_regime_train = supervised_df.loc[y_train.index, "regime"]
-    future_regime_train = y_train
-    predicted_regime_train = pd.Series(preds_train, index=y_train.index)
-    transition_mask_train = current_regime_train != future_regime_train
-    n_transitions_train = transition_mask_train.sum()
-    correct_transition_preds_train = (
-        predicted_regime_train[transition_mask_train] == future_regime_train[transition_mask_train]
-    ).sum()
-
-    print(f"True transitions: {n_transitions_train}")
-    print(f"Correctly predicted transitions: {correct_transition_preds_train}")
-    if n_transitions_train > 0: 
-        print(f"Metric2 transition accuracy: {correct_transition_preds_train / n_transitions_train:.4f}")
-
-    m1_mask_tr = y_train_np[1:] != y_train_np[:-1]
-    m1_n_tr    = m1_mask_tr.sum()
-    m1_acc_tr = None
-    if m1_n_tr > 0: 
-        m1_acc_tr  = (preds_train[1:][m1_mask_tr] == y_train_np[1:][m1_mask_tr]).sum() / m1_n_tr
-
-        print(f"Metric1 transition accuracy: {m1_acc_tr:.4f} ({m1_n_tr} transitions)")
-
-    # preds = clf.predict(X_test_np)
     print("\nTEST RESULTS")
     print(classification_report(y_test_np, preds))
 
-    # Compute transition accuracy for test set
-    current_regime = supervised_df.loc[y_test.index, "regime"]  # current regime at prediction time t
-    future_regime = y_test  # future true regime at t+h
-
-    # Predicted future regime
-    predicted_regime = pd.Series(preds, index=y_test.index)
-
-    # true transitions
-    transition_mask = current_regime != future_regime
-    n_transitions = transition_mask.sum()
-
-    if n_transitions == 0:
-        print("No transition in test window -- skipping")
-        return
-
-
-    # correctly predicted transitions
-    correct_transition_preds = (
-        predicted_regime[transition_mask] == future_regime[transition_mask]
-    ).sum()
-
-    transition_accuracy = correct_transition_preds / n_transitions
-
-    print("Test set results:")
-    print(f"True transitions: {n_transitions}")
-    print(f"Correctly predicted transitions: {correct_transition_preds}")
-    print(f"Metric2 transition accuracy: {transition_accuracy:.4f}")
-
-    m1_mask = y_test_np[1:] != y_test_np[:-1]
-    m1_n    = m1_mask.sum()
-
-    m1_acc = None
-    if m1_n > 0: 
-        m1_acc  = (preds[1:][m1_mask] == y_test_np[1:][m1_mask]).sum() / m1_n
-        print(f"Metric1 transition accuracy: {m1_acc:.4f} ({m1_n} transitions)")
-
     train_accuracy = (preds_train == y_train_np).mean()
     test_accuracy = (preds == y_test_np).mean()
+
+    m1_acc_tr = None
+    m1_acc = None
+    m2_acc_tr = None
+    m2_acc = None
+
+    if cfg_sup.evaluation_metric == 1:
+        m1_mask_tr = y_train_np[1:] != y_train_np[:-1]
+        m1_n_tr    = m1_mask_tr.sum()
+
+        if m1_n_tr > 0: 
+            correct_m1_tr = (preds_train[1:][m1_mask_tr] == y_train_np[1:][m1_mask_tr]).sum()
+            m1_acc_tr = correct_m1_tr / m1_n_tr
+            print(f"Train Metric1 true transitions: {m1_n_tr}")
+            print(f"Train Metric1 correctly predicted transitions: {correct_m1_tr}")
+            print(f"Train Metric1 transition accuracy: {m1_acc_tr:.4f}")
+        else:
+            print("No metric1 defined in this training window")
+
+        m1_mask = y_test_np[1:] != y_test_np[:-1]
+        m1_n    = m1_mask.sum()
+
+        if m1_n > 0 : 
+            correct_m1 = (preds[1:][m1_mask] == y_test_np[1:][m1_mask]).sum()
+            m1_acc  = correct_m1/ m1_n
+            print(f"Test Metric1 true transitions: {m1_n}")
+            print(f"Test Metric1 correctly predicted transitions: {correct_m1}")
+            print(f"Test Metric1 transition accuracy: {m1_acc:.4f}")
+        else:
+            print("No metric 1 defined in this test window")
+
+    else:
+        current_regime_train = supervised_df.loc[y_train.index, "regime"]
+        future_regime_train = y_train
+        predicted_regime_train = pd.Series(preds_train, index=y_train.index)
+        
+        transition_mask_train = current_regime_train != future_regime_train
+        n_transitions_train = transition_mask_train.sum()
+
+        if n_transitions_train > 0:
+            correct_transition_preds_train = (predicted_regime_train[transition_mask_train] == future_regime_train[transition_mask_train]).sum()
+            correct_m2_tr = (predicted_regime_train[transition_mask_train] == future_regime_train[transition_mask_train]).sum()
+            m2_acc_tr = correct_m2_tr / n_transitions_train
+            
+            print(f"Train Metric2 true transitions: {n_transitions_train}")
+            print(f"Train Metric2 correctly predicted transitions: {correct_m2_tr}")
+            print(f"Train Metric2 transition accuracy: {m2_acc_tr:.4f}")
+        else:
+            print("No Metric 2 defined in this training window")
+
+        current_regime = supervised_df.loc[y_test.index, "regime"] 
+        future_regime = y_test 
+
+        predicted_regime = pd.Series(preds, index=y_test.index)
+
+        transition_mask = current_regime != future_regime
+        n_transitions = transition_mask.sum()
+
+        if n_transitions > 0:
+            correct_m2 = (predicted_regime[transition_mask]== future_regime[transition_mask]).sum()
+            m2_acc = correct_m2 / n_transitions
+            print(f"Test Metric2 true transitions: {n_transitions}")
+            print(f"Test Metric2 correctly predicted transitions: {correct_m2}")
+            print(f"Test Metric2 transition accuracy: {m2_acc:.4f}")
+        else: 
+            print("No Metric 2 defined in this testing window")
+
+
+
     fold_results.append({
         "train_accuracy" : train_accuracy,
         "test_accuracy" : test_accuracy,
@@ -194,8 +218,8 @@ def print_results(preds_train, supervised_df, y_train, preds, y_test):
         "train_m1" : m1_acc_tr,
         "test_m1" : m1_acc,
 
-        "train_m2": correct_transition_preds_train / n_transitions_train if n_transitions_train > 0 else None,
-        "test_m2" : transition_accuracy
+        "train_m2": m2_acc_tr,
+        "test_m2" : m2_acc,
     })
 
 def CV_for_lambda(X, y, model_type):
@@ -256,10 +280,11 @@ def main():
     parser.add_argument("--gda", action="store_true")
     parser.add_argument("--neuralnet", action = "store_true")
     parser.add_argument("--tunelambda", action = "store_true")
+    parser.add_argument("-cnn", action = "store_true")
     args = parser.parse_args()
 
     df_labeled = pd.read_csv(cfg.labeled_output_path, index_col=0, parse_dates=True)
-    X, y, supervised_df = build_supervised_regime_dataset(df=df_labeled)
+    X, y, supervised_df = build_supervised_regime_dataset(df=df_labeled, cfg_sup = cfg_sup)
 
     if args.tunelambda:
         if args.softmax: 
@@ -282,10 +307,16 @@ def main():
                 end_test_idx = beg_test_idx + fold_size
             else: 
                 end_test_idx = n
+
+            if args.cnn:
+                X_train_np = X[:beg_test_idx]
+                X_test_np = X[beg_test_idx:end_test_idx]
+
+            else:
+                X_fold, scaler = standardize_data(X.iloc[:beg_test_idx])
+                X_train_np = X_fold.to_numpy(dtype = np.float64)
+                X_test_np = scaler.transform(X.iloc[beg_test_idx:end_test_idx]).astype(np.float64)
             
-            X_fold, scaler = standardize_data(X.iloc[:beg_test_idx])
-            X_train_np = X_fold.to_numpy(dtype = np.float64)
-            X_test_np = scaler.transform(X.iloc[beg_test_idx:end_test_idx]).astype(np.float64)
             y_train = y.iloc[:beg_test_idx]
             y_test = y.iloc[beg_test_idx:end_test_idx]
             y_train_np = y_train.to_numpy(dtype = np.int64)
@@ -299,7 +330,7 @@ def main():
                 clf.fit(X_train_np, y_train_np, learning_rate=cfg_sup.learning_rate, batch_size=cfg_sup.batch_size)
                 preds_train = clf.predict(X_train_np)
                 preds = clf.predict(X_test_np)
-                print_results(preds_train, supervised_df, y_train, preds, y_test)
+                print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
 
             if args.gda:
                 print("GAUSSIAN DISCRIMINANT ANALYSIS")
@@ -307,7 +338,7 @@ def main():
                 clf.fit(X_train_np, y_train_np)
                 preds_train = clf.predict(X_train_np)
                 preds = clf.predict(X_test_np)
-                print_results(preds_train, supervised_df, y_train, preds, y_test)
+                print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
 
             if args.neuralnet:
                 print("NEURAL NETWORK")
@@ -321,7 +352,21 @@ def main():
                 preds_train = clf.predict(X_train_np)
                 preds = clf.predict(X_test_np)
 
-                print_results(preds_train, supervised_df, y_train, preds, y_test)
+                print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
+
+            if args.cnn: 
+                print("CONVOLUTION NEURAL NETWORK")
+                dim_in = X_train_np.shape[2]
+                window_size = X_train_np.shape[1]
+                k = cfg.kmeans_k
+
+                clf = convolutionNN(dim_in, window_size, k, cfg_sup)
+                clf.setup_cnn()
+                clf.fit(X_train_np, y_train_np)
+                preds_train = clf.predict(X_train_np)
+                preds = clf.predict(X_test_np)
+                print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
+
         
         train_sum = 0
         test_sum = 0
@@ -360,27 +405,42 @@ def main():
                 c6 += 1
             
         print(f"\n===== WALK-FORWARD SUMMARY ({folds} folds) =====")
-        print(f"Avg train accuracy : {(train_sum / c1):.4f}")
-        print(f"Avg test accuracy  : {(test_sum / c2):.4f}")
-        print(f"Avg train M1       : {(train_m1_sum / c3):.4f}")
-        print(f"Avg test M1        : {(test_m1_sum / c4):.4f}")
-        print(f"Avg train M2       : {(train_m2_sum / c5):.4f}")
-        print(f"Avg test M2        : {(test_m2_sum / c6):.4f}")
+        if c1 > 0: 
+            print(f"Avg train accuracy : {(train_sum / c1):.4f}")
+        if c2 > 0:
+            print(f"Avg test accuracy  : {(test_sum / c2):.4f}")
+        
+        if cfg_sup.evaluation_metric == 1: 
+            if c3 > 0: 
+                print(f"Avg train M1       : {(train_m1_sum / c3):.4f}")
+            if c4 > 0:
+                print(f"Avg test M1        : {(test_m1_sum / c4):.4f}")
+
+        else: 
+            if c5 > 0:
+                print(f"Avg train M2       : {(train_m2_sum / c5):.4f}")
+            if c6 > 0:
+                print(f"Avg test M2        : {(test_m2_sum / c6):.4f}")
 
  
 
     else: 
         split_idx = int(len(X) * cfg_sup.train_split)
-        X_train = X.iloc[:split_idx]
-        X_test = X.iloc[split_idx:]
+
         y_train = y.iloc[:split_idx]
         y_test = y.iloc[split_idx:]
-    
-        X_train, scaler = standardize_data(X_train)
-        X_train_np = X_train.to_numpy(dtype=np.float64)
-        X_test_np = scaler.transform(X_test)
-        X_test_np = X_test_np.astype(np.float64)
         y_train_np = y_train.to_numpy(dtype=np.int64)
+
+        if args.cnn:
+            X_train_np = X[:split_idx]
+            X_test_np = X[split_idx:]
+        else: 
+            X_train = X.iloc[:split_idx]
+            X_test = X.iloc[split_idx:]
+            X_train, scaler = standardize_data(X_train)
+            X_train_np = X_train.to_numpy(dtype=np.float64)
+            X_test_np = scaler.transform(X_test)
+            X_test_np = X_test_np.astype(np.float64)
 
         if args.softmax:
             print("SOFTMAX REGRESSION")
@@ -388,7 +448,7 @@ def main():
             clf.fit(X_train_np, y_train_np, learning_rate=cfg_sup.learning_rate, batch_size=cfg_sup.batch_size)
             preds_train = clf.predict(X_train_np)
             preds = clf.predict(X_test_np)
-            print_results(preds_train, supervised_df, y_train, preds, y_test)
+            print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
 
         if args.gda:
             print("GAUSSIAN DISCRIMINANT ANALYSIS")
@@ -396,7 +456,7 @@ def main():
             clf.fit(X_train_np, y_train_np)
             preds_train = clf.predict(X_train_np)
             preds = clf.predict(X_test_np)
-            print_results(preds_train, supervised_df, y_train, preds, y_test)
+            print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
 
         if args.neuralnet:
             print("NEURAL NETWORK")
@@ -410,7 +470,21 @@ def main():
             preds_train = clf.predict(X_train_np)
             preds = clf.predict(X_test_np)
 
-            print_results(preds_train, supervised_df, y_train, preds, y_test)
+            print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
+        
+        if args.cnn: 
+            print("CONVOLUTION NEURAL NETWORK")
+            dim_in = X_train_np.shape[2]
+            window_size = X_train_np.shape[1]
+            k = cfg.kmeans_k
+
+            clf = convolutionNN(dim_in, window_size, k, cfg_sup)
+            clf.setup_cnn()
+            clf.fit(X_train_np, y_train_np)
+            preds_train = clf.predict(X_train_np)
+            preds = clf.predict(X_test_np)
+            print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
+
 
 
 class SoftmaxRegression:
@@ -531,7 +605,7 @@ class SoftmaxRegression:
             penalty_grad = cfg_sup.lam * X.T @ dZ_trans
         elif cfg_sup.penalty_type == "ce_pairwise":
             transition_indicator = (y[1:] != y[:-1]).astype(float)
-            term1 = X[1:].T @ (transition_indicator[:, None] * (1 + cfg_sup.lam) * (prob[1:] - one_hot[1:]))
+            term1 = X[1:].T @ (transition_indicator[:, None] * cfg_sup.lam * (prob[1:] - one_hot[1:]))
             term2 = X[:-1].T @ (transition_indicator[:, None] * cfg_sup.lam * (prob[:-1] - one_hot[:-1]))
             penalty_grad = term1 + term2
         elif cfg_sup.penalty_type == "margin_bar":
@@ -869,7 +943,130 @@ class Neural_Networks(nn.Module):
         y_numpy = predicted_y.detach().numpy()
     
         return y_numpy
+
+class convolutionNN(nn.Module):
+    def __init__(self, dim_in, window_size, k, cfg_sup):
+        super().__init__()
+
+        self.dim_in = dim_in
+        self.window_size = window_size
+        self.k = k
+        self.cfg_sup = cfg_sup
+    
+    def setup_cnn(self):
+        self.conv1 = nn.Conv1d(in_channels= self.dim_in, out_channels= self.cfg_sup.num_filters, kernel_size= self.cfg_sup.kernel_size)
         
+        self.activation = nn.ReLU()
+        self.dropout = nn.Dropout(self.cfg_sup.dropout_prob)
+        output_dim = self.window_size - self.cfg_sup.kernel_size + 1
+        self.lin_out = nn.Linear(self.cfg_sup.num_filters * output_dim, self.k)
+    
+    def forward(self, x):
+        #Based on the docstring I think the input for nnconv1d needs (n, channels, length)
+        #Currently the data is stored with dimension (n_windows, window lenght, features)
+
+        x = x.transpose(1,2)
+
+        x = self.conv1(x)
+        x = self.activation(x)
+        x = self.dropout(x)
+        x = torch.flatten(x, start_dim= 1)
+        score = self.lin_out(x)
+        return score
+    
+    def loss_function(self, score, y): 
+        n = score.shape[0]
+
+        #Changing logit scores to probabilites through softmax
+        numerator = torch.exp(score)
+        denominator = numerator.sum(dim = 1, keepdim= True)
+        prob = numerator / denominator
+
+        ground_lab = []
+        for i in range(n):
+            ground_lab.append(prob[i, y[i]])
+        ground_lab = torch.stack(ground_lab)
+
+        log_loss = torch.log(ground_lab + 1e-12)
+        loss = -log_loss.sum()
+
+        if self.cfg_sup.penalty_type == "ce_standard":
+            transition_indicator = (y[1:] != y[:-1]).float()
+            penalty = -self.cfg_sup.lam * (transition_indicator * log_loss[1:]).sum()
+        elif self.cfg_sup.penalty_type == "ce_pairwise":
+            transition_indicator = (y[1:] != y[:-1]).float()
+            penalty = -self.cfg_sup.lam * (transition_indicator * (log_loss[1:] + log_loss[:-1])).sum()
+        elif self.cfg_sup.penalty_type == "margin_bar":
+            transition_indicator = (y[1:] != y[:-1]).float()
+            diff_today_yesterday = []
+
+            for k in range(1, n):
+                yest_prb = prob[k, y[k-1]]
+                today_prb = prob[k, y[k]]
+
+                diff = self.cfg_sup.margin + yest_prb - today_prb
+                diff_today_yesterday.append(diff)
+
+            stacked_diff = torch.stack(diff_today_yesterday)
+            penalty = self.cfg_sup.lam * (transition_indicator * (torch.log(1 + torch.exp(stacked_diff)))).sum()
+
+        elif self.cfg_sup.penalty_type == "distance":
+            transition_indicator = (y[1:] != y[:-1]).float()
+            inside = []
+            for i in range(n-1):
+                temp = 0.0
+                for k in range(self.k):
+                    temp += (y[i + 1] - k) ** 2 * prob[i+1,k]
+                
+                inside.append(temp)
+            
+            inside = torch.stack(inside)
+            penalty = self.cfg_sup.lam * (transition_indicator * inside).sum()
+
+        else:
+            penalty = 0
+
+        return loss + penalty
+
+    def fit(self, x, y):
+        self.train()
+        X_matrix = torch.tensor(x, dtype = torch.float32)
+        y_vec = torch.tensor(y, dtype = torch.long)
+
+        optimizer = torch.optim.AdamW(self.parameters(), lr = self.cfg_sup.learning_rate, weight_decay = self.cfg_sup.weight_decay)
+        warmup_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, 
+                                                             start_factor = 0.01, 
+                                                             end_factor=1.0, 
+                                                             total_iters = self.cfg_sup.warmup_epochs)
+        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, 
+                                                                      T_max = self.cfg_sup.epochs - self.cfg_sup.warmup_epochs, 
+                                                                      eta_min = self.cfg_sup.min_lr)
+
+        scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_scheduler, cosine_scheduler], milestones = [self.cfg_sup.warmup_epochs])
+
+        for epoch in range(self.cfg_sup.epochs):
+            optimizer.zero_grad()
+            score = self.forward(X_matrix)
+            loss = self.loss_function(score, y_vec)
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+    
+    def predict(self, x_new):
+        self.eval()
+        X_mat_new = torch.tensor(x_new, dtype = torch.float32)
+
+        score = self.forward(X_mat_new)
+
+        numerator = torch.exp(score)
+        denominator = numerator.sum(dim = 1, keepdim = True)
+        softmax_x_prob = numerator / denominator
+
+        predicted_y = torch.argmax(softmax_x_prob, dim = 1)
+        y_numpy = predicted_y.detach().numpy()
+    
+        return y_numpy
+
 
 
 # class GDA_SGD:
