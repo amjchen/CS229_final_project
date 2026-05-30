@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import contextlib
 import io
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay
 from data_munging import standardize_data
 
 from config import DataConfig, SupervisedConfig
@@ -424,7 +424,11 @@ def main():
             if c6 > 0:
                 print(f"Avg test M2        : {(test_m2_sum / c6):.4f}")
         print(classification_report(y_true_all, y_pred_all))
- 
+        cm = confusion_matrix(y_true_all, y_pred_all)
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Bull', 'Recovery', 'Crisis'])
+        # plt.show()
+        disp.plot()
+        plt.savefig('my_plot.png', dpi=300, bbox_inches='tight')
 
     else: 
         split_idx = int(len(X) * cfg_sup.train_split)
@@ -486,6 +490,11 @@ def main():
             preds_train = clf.predict(X_train_np)
             preds = clf.predict(X_test_np)
             print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
+        cm = confusion_matrix(y_test, preds)
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Bull', 'Recovery', 'Crisis'])
+        # plt.show()
+        disp.plot()
+        plt.savefig('my_plot.png', dpi=300, bbox_inches='tight')
 
 
 
@@ -1129,7 +1138,7 @@ class GDA_SGD:
     """
 
     def __init__(self, k=3, max_iter=1000, eps=1e-6,
-                 learning_rate=1e-3, batch_size=32, reg_stren=1, 
+                 learning_rate=1e-3, batch_size=32, reg_stren=10, 
                  verbose=True):
 
         self.k = k
