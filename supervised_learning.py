@@ -300,7 +300,7 @@ def main():
         minimum_training_set = int(n / 2)
         folds = cfg_sup.folds
         fold_size = (n - minimum_training_set) // folds
-
+        results = {}
         for i in range(folds):
             beg_test_idx = minimum_training_set + i * fold_size
             if i < folds - 1:
@@ -366,7 +366,9 @@ def main():
                 preds_train = clf.predict(X_train_np)
                 preds = clf.predict(X_test_np)
                 print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
-
+            results[f"fold_{i}"] = {"true" : y_test.to_numpy(dtype=np.int64), "pred" : preds}
+        y_true_all = [item for f in results.values() for item in f["true"]]
+        y_pred_all = [item for f in results.values() for item in f["pred"]]
         
         train_sum = 0
         test_sum = 0
@@ -421,7 +423,7 @@ def main():
                 print(f"Avg train M2       : {(train_m2_sum / c5):.4f}")
             if c6 > 0:
                 print(f"Avg test M2        : {(test_m2_sum / c6):.4f}")
-
+        print(classification_report(y_true_all, y_pred_all))
  
 
     else: 
@@ -1120,195 +1122,6 @@ class convolutionNN(nn.Module):
 #         dL/dphi_j
 #             = -n_j / phi_j + lambda
 
-#     We omit explicit lambda and renormalize phi after updates.
-#     """
-
-#     def __init__(
-#         self,
-#         k=3,
-#         max_iter=cfg_sup.max_iter,
-#         eps=1e-6,
-#         learning_rate=cfg_sup.learning_rate,
-#         batch_size=cfg_sup.batch_size,
-#         verbose=True,
-#     ):
-#         self.k = k
-#         self.max_iter = max_iter
-#         self.eps = eps
-#         self.learning_rate = learning_rate
-#         self.batch_size = batch_size
-#         self.verbose = verbose
-
-#         self.mu = None
-#         self.L = None
-#         self.phi = None
-
-#         self.loss_history = []
-
-#     def precision_matrix(self, j):
-#         """
-#         S_j = L_j L_j^T
-#         """
-#         return self.L[j] @ self.L[j].T
-
-#     def fit(self, x, y):
-#         n, d = x.shape
-
-#         if self.mu is None:
-#             self.mu = np.random.randn(self.k, d)
-#         if self.L is None:
-#             self.L = np.array([
-#                 np.eye(d) for _ in range(self.k)
-#             ])
-#         if self.phi is None:
-#             self.phi = np.ones(self.k) / self.k
-
-#         for epoch in range(self.max_iter):
-#             # shuffle
-#             perm = np.random.permutation(n)
-#             x_shuffled = x[perm]
-#             y_shuffled = y[perm]
-
-#             self.gradient_descent_epoch(x_shuffled, y_shuffled)
-#             loss = self.nll_loss(x, y)
-#             self.loss_history.append(loss)
-
-#             if self.verbose and epoch % 200 == 0:
-#                 print(f"Epoch {epoch:5d} | Loss: {loss:.6f}")
-
-#             if (epoch > 0 and abs(self.loss_history[-2] - self.loss_history[-1]) < self.eps):
-#                 break
-
-#     def nll_loss(self, x, y):
-#         n, d = x.shape
-#         loss = 0.0
-
-#         for j in range(self.k):
-#             x_j = x[y == j]
-#             n_j = len(x_j)
-
-#             if n_j == 0:  # skip if no examples of class j
-#                 continue
-
-#             mu_j = self.mu[j]
-#             S_j = self.precision_matrix(j)
-#             phi_j = self.phi[j]
-
-#             diff = x_j - mu_j
-#             sign, logdetS = np.linalg.slogdet(S_j)
-#             quad = np.sum((diff @ S_j) * diff)
-
-#             class_loss = (
-#                 -n_j * np.log(phi_j + 1e-12)
-#                 -0.5 * n_j * logdetS
-#                 +0.5 * quad
-#             )
-
-#             loss += class_loss
-
-#         return loss / n
-
-#     def nll_grad(self, x_batch, y_batch):
-#         n_batch, d = x_batch.shape
-
-#         grad_mu = np.zeros_like(self.mu)
-#         grad_L = np.zeros_like(self.L)
-#         grad_phi = np.zeros_like(self.phi)
-
-#         for j in range(self.k):
-#             x_j = x_batch[y_batch == j]
-#             n_j = len(x_j)
-
-#             if n_j == 0:
-#                 continue
-
-#             mu_j = self.mu[j]
-#             L_j = self.L[j]
-#             S_j = self.precision_matrix(j)
-#             phi_j = self.phi[j]
-
-#             diff = x_j - mu_j
-
-#             # dL/dmu_j = - sum S_j (x_i - mu_j)
-#             grad_mu[j] = -np.sum(
-#                 diff @ S_j,
-#                 axis=0
-#             )
-
-#             # dL/dS_j = 0.5 * (scatter - n_j S^-1)
-#             scatter = diff.T @ diff
-#             Sigma_j = np.linalg.inv(S_j)
-#             grad_S = 0.5 * (scatter - n_j * Sigma_j)
-
-#             # dL/dL_j = 2 grad_S L_j
-#             grad_L[j] = 2.0 * grad_S @ L_j
-
-#             # dL/dphi_j
-#             grad_phi[j] = -n_j / (phi_j + 1e-12)
-
-#         # average gradients over batch
-#         grad_mu /= n_batch
-#         grad_L /= n_batch
-#         grad_phi /= n_batch
-
-#         return grad_mu, grad_L, grad_phi
-
-#     def gradient_descent_epoch(self, x_shuffled, y_shuffled):
-#         n = x_shuffled.shape[0]
-
-#         for start_idx in range(0, n, self.batch_size):
-#             end_idx = start_idx + self.batch_size
-
-#             x_batch = x_shuffled[start_idx:end_idx]
-#             y_batch = y_shuffled[start_idx:end_idx]
-
-#             grad_mu, grad_L, grad_phi = self.nll_grad(x_batch, y_batch)
-#             self.mu -= self.learning_rate * grad_mu
-#             self.L -= self.learning_rate * grad_L
-#             self.phi -= self.learning_rate * grad_phi
-
-#             # stabilize phi
-#             self.phi = np.clip(self.phi, 1e-8, None)
-#             self.phi /= np.sum(self.phi)
-
-#             # stabilize Cholesky diagonal
-#             for j in range(self.k):
-#                 self.L[j] = np.tril(self.L[j])
-#                 diag = np.diag(self.L[j])
-#                 diag = np.clip(diag, 1e-4, None)
-
-#                 np.fill_diagonal(
-#                     self.L[j],
-#                     diag
-#                 )
-
-#     def predict(self, x):
-#         n, d = x.shape
-
-#         log_posteriors = np.zeros((n, self.k))
-
-#         for j in range(self.k):
-#             mu_j = self.mu[j]
-#             S_j = self.precision_matrix(j)
-#             phi_j = self.phi[j]
-
-#             diff = x - mu_j
-#             sign, logdetS = np.linalg.slogdet(S_j)
-#             quad = np.sum((diff @ S_j) * diff, axis=1)
-
-#             log_likelihood = (
-#                 np.log(phi_j + 1e-12)
-#                 + 0.5 * logdetS
-#                 - 0.5 * quad
-#             )
-
-#             log_posteriors[:, j] = log_likelihood
-
-#         return np.argmax(log_posteriors, axis=1)
-
-import numpy as np
-
-
 class GDA_SGD:
     """
     Gaussian Discriminant Analysis trained with mini-batch SGD
@@ -1316,7 +1129,7 @@ class GDA_SGD:
     """
 
     def __init__(self, k=3, max_iter=1000, eps=1e-6,
-                 learning_rate=1e-3, batch_size=32,
+                 learning_rate=1e-3, batch_size=32, reg_stren=1, 
                  verbose=True):
 
         self.k = k
@@ -1325,16 +1138,13 @@ class GDA_SGD:
         self.learning_rate = learning_rate
         self.batch_size = batch_size
         self.verbose = verbose
+        self.reg_stren = reg_stren
 
         self.mu = None
         self.L = None
         self.alpha = None
 
         self.loss_history = []
-
-    # =========================================================
-    # Softmax prior parameterization
-    # =========================================================
 
     def softmax(self, z):
         z = z - np.max(z)
@@ -1345,33 +1155,23 @@ class GDA_SGD:
     def phi(self):
         return self.softmax(self.alpha)
 
-    # =========================================================
-    # Precision matrix
-    # =========================================================
-
     def precision_matrix(self, j):
         return self.L[j] @ self.L[j].T
-
-    # =========================================================
-    # Training
-    # =========================================================
 
     def fit(self, x, y):
         n, d = x.shape
 
         if self.mu is None:
             self.mu = np.random.randn(self.k, d)
-
         if self.L is None:
             self.L = np.array([np.eye(d) for _ in range(self.k)])
-
         if self.alpha is None:
             self.alpha = np.zeros(self.k)
 
         for epoch in range(self.max_iter):
-            perm = np.random.permutation(n)
-            x_shuffled = x[perm]
-            y_shuffled = y[perm]
+            # perm = np.random.permutation(n)
+            x_shuffled = x #[perm]
+            y_shuffled = y #[perm]
 
             self.gradient_descent_epoch(x_shuffled, y_shuffled)
 
@@ -1383,10 +1183,6 @@ class GDA_SGD:
 
             if epoch > 0 and abs(self.loss_history[-2] - self.loss_history[-1]) < self.eps:
                 break
-
-    # =========================================================
-    # Negative log likelihood
-    # =========================================================
 
     def nll_loss(self, x, y):
         n, d = x.shape
@@ -1416,6 +1212,13 @@ class GDA_SGD:
             )
 
             loss += class_loss
+
+        # regularize precision matrix
+        raw_reg = 0
+        I = np.eye(d)
+        for k in range(self.k):
+            raw_reg += np.sum((self.precision_matrix(k) - I) ** 2) 
+        reg = self.reg_stren * raw_reg
 
         if cfg_sup.penalty_type == "ce_standard":
             logits = np.zeros((n, self.k))  # (n, k)
@@ -1451,55 +1254,7 @@ class GDA_SGD:
         else:
             penalty = 0.0
 
-        return (loss + penalty) / n
-
-    # =========================================================
-    # Gradients
-    # =========================================================
-
-    # def nll_grad(self, x_batch, y_batch):
-    #     n_batch, d = x_batch.shape
-
-    #     grad_mu = np.zeros_like(self.mu)
-    #     grad_L = np.zeros_like(self.L)
-    #     grad_alpha = np.zeros_like(self.alpha)
-
-    #     phi = self.phi
-
-    #     for j in range(self.k):
-    #         x_j = x_batch[y_batch == j]
-    #         n_j = len(x_j)
-
-    #         if n_j == 0:
-    #             continue
-
-    #         mu_j = self.mu[j]
-    #         L_j = self.L[j]
-    #         S_j = self.precision_matrix(j)
-    #         phi_j = phi[j]
-
-    #         diff = x_j - mu_j
-
-    #         # dL/dmu_j = - sum S_j (x_i - mu_j)
-    #         grad_mu[j] = -np.sum(diff @ S_j, axis=0)
-
-    #         # dL/dS_j = 0.5 * (scatter - n_j S^-1)
-    #         scatter = diff.T @ diff
-    #         Sigma_j = np.linalg.inv(S_j)
-
-    #         grad_S = 0.5 * (scatter - n_j * Sigma_j)
-
-    #         # dL/dL_j = 2 grad_S L_j
-    #         grad_L[j] = 2.0 * grad_S @ L_j
-
-    #         # dL/dalpha_j = n_batch * phi_j - n_j
-    #         grad_alpha[j] = n_batch * phi_j - n_j
-
-    #     grad_mu /= n_batch
-    #     grad_L /= n_batch
-    #     grad_alpha /= n_batch
-
-    #     return grad_mu, grad_L, grad_alpha
+        return (loss + penalty + reg) / n
 
     def nll_grad(self, x_batch, y_batch):
         """
@@ -1538,37 +1293,23 @@ class GDA_SGD:
             phi_k = phi[k]
             diff = x_k - mu_k
 
-            # -------------------------------------------------
-            # grad wrt mu_k
-            # -------------------------------------------------
             grad_mu[k] += -np.sum(diff @ S_k, axis=0)
 
-            # -------------------------------------------------
+
             # grad wrt S_k
-            # -------------------------------------------------
             scatter = diff.T @ diff
-            Sigma_k = np.linalg.inv(S_k)
+            Sigma_k = np.linalg.inv(S_k + 1e-5 * np.eye(d))
             grad_S = 0.5 * (scatter - n_k * Sigma_k)
 
-            # -------------------------------------------------
             # chain rule: S_k = L_k L_k^T
-            # -------------------------------------------------
-            grad_L[k] += 2.0 * grad_S @ L_k
+            grad_L[k] += (grad_S + grad_S.T) @ L_k # 2.0 * grad_S @ L_k
 
-            # -------------------------------------------------
-            # grad wrt alpha_k
-            # -------------------------------------------------
             grad_alpha[k] += n_batch * phi_k - n_k
 
         # Transition CE loss
         if cfg_sup.penalty_type == "ce_standard":
-            # -------------------------------------------------
-            # compute posterior probabilities
-            # p(y=k | x)
-            # -------------------------------------------------
-
+            # compute posterior probabilities p(y=k | x)
             logits = np.zeros((n_batch, self.k))
-
             for k in range(self.k):
                 mu_k = self.mu[k]
                 S_k = self.precision_matrix(k)
@@ -1581,108 +1322,66 @@ class GDA_SGD:
                     + 0.5 * logdetS
                     - 0.5 * quad
                 )
-
             logits -= np.max(logits, axis=1, keepdims=True)
             exp_logits = np.exp(logits)
             probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
 
-            if cfg_sup.penalty_type == "ce_standard":
+            Y = np.eye(self.k)[y_batch]
+            G = probs - Y
 
-                logits = np.zeros((n_batch, self.k))
+            transition_mask = np.zeros(n_batch)
+            transition_mask[1:] = (
+                y_batch[1:] != y_batch[:-1]
+            ).astype(float)
 
-                for k in range(self.k):
-                    mu_k = self.mu[k]
-                    S_k = self.precision_matrix(k)
+            G *= cfg_sup.lam * transition_mask[:, None]
 
-                    diff = x_batch - mu_k
+            # alpha gradient
+            grad_alpha += np.sum(G, axis=0)
 
-                    sign, logdetS = np.linalg.slogdet(S_k)
+            # mu and L gradients
+            for k in range(self.k):
+                S_k = self.precision_matrix(k)
+                L_k = self.L[k]
 
-                    quad = np.sum((diff @ S_k) * diff, axis=1)
+                diff = x_batch - self.mu[k]
 
-                    logits[:, k] = (
-                        np.log(phi[k] + 1e-12)
-                        + 0.5 * logdetS
-                        - 0.5 * quad
-                    )
+                # mu gradient
+                grad_mu[k] += np.sum(
+                    G[:, k][:, None] * (diff @ S_k),
+                    axis=0
+                )
 
-                logits -= np.max(logits, axis=1, keepdims=True)
+                # S gradient
+                outer = np.einsum(
+                    'ni,nj->nij',
+                    diff,
+                    diff
+                )
+                weighted_outer = np.sum(
+                    G[:, k][:, None, None] * outer,
+                    axis=0
+                )
+                grad_S = (
+                    0.5 * np.sum(G[:, k]) * np.linalg.inv(S_k)
+                    - 0.5 * weighted_outer
+                )
 
-                probs = np.exp(logits)
-                probs /= np.sum(probs, axis=1, keepdims=True)
+                grad_L[k] += (
+                    grad_S + grad_S.T
+                ) @ L_k
 
-                # =====================================================
-                # vectorized CE gradients
-                # =====================================================
-
-                Y = np.eye(self.k)[y_batch]
-
-                G = probs - Y
-
-                transition_mask = np.zeros(n_batch)
-                transition_mask[1:] = (
-                    y_batch[1:] != y_batch[:-1]
-                ).astype(float)
-
-                G *= cfg_sup.lam * transition_mask[:, None]
-
-                # alpha gradient
-                grad_alpha += np.sum(G, axis=0)
-
-                # mu and L gradients
-                for k in range(self.k):
-
-                    S_k = self.precision_matrix(k)
-                    L_k = self.L[k]
-
-                    diff = x_batch - self.mu[k]
-
-                    # -----------------------------------------
-                    # mu gradient
-                    # -----------------------------------------
-
-                    grad_mu[k] += np.sum(
-                        G[:, k][:, None] * (diff @ S_k),
-                        axis=0
-                    )
-
-                    # -----------------------------------------
-                    # S gradient
-                    # -----------------------------------------
-
-                    outer = np.einsum(
-                        'ni,nj->nij',
-                        diff,
-                        diff
-                    )
-
-                    weighted_outer = np.sum(
-                        G[:, k][:, None, None] * outer,
-                        axis=0
-                    )
-
-                    grad_S = (
-                        0.5 * np.sum(G[:, k]) * np.linalg.inv(S_k)
-                        - 0.5 * weighted_outer
-                    )
-
-                    grad_L[k] += (
-                        grad_S + grad_S.T
-                    ) @ L_k
-
-        # =====================================================
-        # normalize
-        # =====================================================
+        # for regularization
+        for j in range(self.k):
+            I = np.eye(d)
+            S_j = self.precision_matrix(j)
+            grad_L[j] += 4.0 * self.reg_stren * (S_j - I) @ self.L[j]
 
         grad_mu /= n_batch
         grad_L /= n_batch
         grad_alpha /= n_batch
 
         return grad_mu, grad_L, grad_alpha
-
-    # =========================================================
-    # SGD epoch
-    # =========================================================
 
     def gradient_descent_epoch(self, x_shuffled, y_shuffled):
         n = x_shuffled.shape[0]
@@ -1708,10 +1407,6 @@ class GDA_SGD:
 
                 np.fill_diagonal(self.L[j], diag)
 
-    # =========================================================
-    # Prediction
-    # =========================================================
-
     def predict(self, x):
         n, d = x.shape
         log_posteriors = np.zeros((n, self.k))
@@ -1733,10 +1428,10 @@ class GDA_SGD:
                 + 0.5 * logdetS
                 - 0.5 * quad
             )
-
             log_posteriors[:, j] = log_likelihood
 
         return np.argmax(log_posteriors, axis=1)
+
 
 if __name__ == "__main__":
     main()
