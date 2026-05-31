@@ -14,6 +14,8 @@ from config import DataConfig, SupervisedConfig
 cfg = DataConfig()
 cfg_sup = SupervisedConfig()
 fold_results = []
+h = cfg_sup.horizon
+
 
 
 def build_supervised_regime_dataset(
@@ -573,26 +575,23 @@ class SoftmaxRegression:
         log_loss = np.log(prob[np.arange(n), y] + 1e-12)
         loss = -log_loss.sum()
 
+        transition_indicator = (y[h:] != y[:-h]).astype(float)
         if cfg_sup.penalty_type == "ce_standard":
-            transition_indicator = (y[1:] != y[:-1]).astype(float)
-            penalty = -cfg_sup.lam * (transition_indicator * log_loss[1:]).sum()
+            penalty = -cfg_sup.lam * (transition_indicator * log_loss[h:]).sum()
         elif cfg_sup.penalty_type == "ce_pairwise":
-            transition_indicator = (y[1:] != y[:-1]).astype(float)
-            penalty = -cfg_sup.lam * (transition_indicator * (log_loss[1:] + log_loss[:-1])).sum()
+            penalty = -cfg_sup.lam * (transition_indicator * (log_loss[h:] + log_loss[:-h])).sum()
         elif cfg_sup.penalty_type == "margin_bar":
-            transition_indicator = (y[1:] != y[:-1]).astype(float)
-            diff_today_yesterday = np.zeros(n-1)
-            for k in range(1, n):
-                yesterday = y[k-1]
+            diff_today_yesterday = np.zeros(n-h)
+            for k in range(h, n):
+                yesterday = y[k-h]
                 today = y[k]
-                diff_today_yesterday[k-1] = cfg.margin + prob[k, yesterday] - prob[k, today]
+                diff_today_yesterday[k-h] = cfg_sup.margin + prob[k, yesterday] - prob[k, today]
             penalty = cfg_sup.lam * (transition_indicator * np.log(1 + np.exp(diff_today_yesterday))).sum()
         elif cfg_sup.penalty_type == "distance":
-            transition_indicator = (y[1:] != y[:-1]).astype(float)
-            inside = np.zeros(n-1)
-            for i in range(n-1):
+            inside = np.zeros(n-h)
+            for i in range(n-h):
                 for k in range(cfg.kmeans_k):
-                    inside[i] += ((y[i+1] - k) ** 2) * prob[i+1, k]
+                    inside[i] += ((y[i+h] - k) ** 2) * prob[i+h, k]
             penalty = cfg_sup.lam *(transition_indicator * inside).sum()
         else:
             penalty = 0
@@ -609,41 +608,38 @@ class SoftmaxRegression:
         dZ = prob - one_hot
         dTheta = X.T @ dZ
 
+        transition_indicator = (y[h:] != y[:-h]).astype(float)
         if cfg_sup.penalty_type == "ce_standard":
-            transition_indicator = (y[1:] != y[:-1]).astype(float)
             dZ_trans = np.zeros((n, self.k))
-            dZ_trans[1:] = transition_indicator[:, None] * (prob[1:] - one_hot[1:])
+            dZ_trans[h:] = transition_indicator[:, None] * (prob[h:] - one_hot[h:])
             penalty_grad = cfg_sup.lam * X.T @ dZ_trans
         elif cfg_sup.penalty_type == "ce_pairwise":
-            transition_indicator = (y[1:] != y[:-1]).astype(float)
-            term1 = X[1:].T @ (transition_indicator[:, None] * cfg_sup.lam * (prob[1:] - one_hot[1:]))
-            term2 = X[:-1].T @ (transition_indicator[:, None] * cfg_sup.lam * (prob[:-1] - one_hot[:-1]))
+            term1 = X[h:].T @ (transition_indicator[:, None] * cfg_sup.lam * (prob[h:] - one_hot[h:]))
+            term2 = X[:-h].T @ (transition_indicator[:, None] * cfg_sup.lam * (prob[:-h] - one_hot[:-h]))
             penalty_grad = term1 + term2
         elif cfg_sup.penalty_type == "margin_bar":
-            transition_indicator = (y[1:] != y[:-1]).astype(float)
-            diff_today_yesterday = np.zeros(n-1)
-            for k in range(1, n):
-                yesterday = y[k-1]
+            diff_today_yesterday = np.zeros(n-h)
+            for k in range(h, n):
+                yesterday = y[k-h]
                 today = y[k]
-                diff_today_yesterday[k-1] = cfg_sup.margin + prob[k, yesterday] - prob[k, today]
+                diff_today_yesterday[k-h] = cfg_sup.margin + prob[k, yesterday] - prob[k, today]
             penalty = cfg_sup.lam * (transition_indicator * np.log(1 + np.exp(diff_today_yesterday))).sum()
 
             sigmoid = 1.0 / (1.0 + np.exp(-diff_today_yesterday))
-            one_hot_difference = np.zeros((n-1, self.k))
-            for i in range(n-1):
+            one_hot_difference = np.zeros((n- h, self.k))
+            for i in range(n-h):
                 one_hot_difference[i, y[i]] += 1.0
-                one_hot_difference[i, y[i+1]] -= 1.0
+                one_hot_difference[i, y[i+h]] -= 1.0
             
             constant = (transition_indicator * sigmoid)[:, None]
-            summing = prob[1:] * (one_hot_difference - (diff_today_yesterday - cfg_sup.margin)[:, None])
+            summing = prob[h:] * (one_hot_difference - (diff_today_yesterday - cfg_sup.margin)[:, None])
 
-            penalty_grad = cfg_sup.lam * X[1:]. T @ (constant * summing)
+            penalty_grad = cfg_sup.lam * X[h:]. T @ (constant * summing)
         elif cfg_sup.penalty_type == "distance":
-            transition_indicator = (y[1:] != y[:-1]).astype(float)
-            inside = np.zeros(n-1)
-            for i in range(n-1):
+            inside = np.zeros(n-h)
+            for i in range(n-h):
                 for k in range(cfg.kmeans_k):
-                    inside[i] += ((y[i+1] - k) ** 2) * prob[i+1, k]
+                    inside[i] += ((y[i+h] - k) ** 2) * prob[i+h, k]
 
             penalty_grad = np.zeros((X.shape[1], self.k))
             one_hot_y = self.one_hot(y)
@@ -651,12 +647,12 @@ class SoftmaxRegression:
             for k in range(cfg.kmeans_k):
                 c[k] = k
 
-            for i in range(n - 1):
+            for i in range(n - h):
                 if transition_indicator[i]:
                     for k in range(self.k):
-                        ctyi = np.dot(c, one_hot_y[i + 1])
-                        weight = cfg_sup.lam * prob[i + 1, k] *((ctyi - c[k]) ** 2 - inside[i])
-                        penalty_grad[:, k] += weight * X[i+1]
+                        ctyi = np.dot(c, one_hot_y[i + h])
+                        weight = cfg_sup.lam * prob[i + h, k] *((ctyi - c[k]) ** 2 - inside[i])
+                        penalty_grad[:, k] += weight * X[i+h]
             
         else:
             penalty_grad = 0
@@ -878,18 +874,16 @@ class Neural_Networks(nn.Module):
         log_loss = torch.log(ground_lab + 1e-12)
         loss = -log_loss.sum()
 
+        transition_indicator = (y[h:] != y[:-h]).float()
         if self.cfg_sup.penalty_type == "ce_standard":
-            transition_indicator = (y[1:] != y[:-1]).float()
-            penalty = -self.cfg_sup.lam * (transition_indicator * log_loss[1:]).sum()
+            penalty = -self.cfg_sup.lam * (transition_indicator * log_loss[h:]).sum()
         elif self.cfg_sup.penalty_type == "ce_pairwise":
-            transition_indicator = (y[1:] != y[:-1]).float()
-            penalty = -self.cfg_sup.lam * (transition_indicator * (log_loss[1:] + log_loss[:-1])).sum()
+            penalty = -self.cfg_sup.lam * (transition_indicator * (log_loss[h:] + log_loss[:-h])).sum()
         elif self.cfg_sup.penalty_type == "margin_bar":
-            transition_indicator = (y[1:] != y[:-1]).float()
             diff_today_yesterday = []
 
-            for k in range(1, n):
-                yest_prb = prob[k, y[k-1]]
+            for k in range(h, n):
+                yest_prb = prob[k, y[k-h]]
                 today_prb = prob[k, y[k]]
 
                 diff = self.cfg_sup.margin + yest_prb - today_prb
@@ -899,12 +893,11 @@ class Neural_Networks(nn.Module):
             penalty = self.cfg_sup.lam * (transition_indicator * (torch.log(1 + torch.exp(stacked_diff)))).sum()
 
         elif self.cfg_sup.penalty_type == "distance":
-            transition_indicator = (y[1:] != y[:-1]).float()
             inside = []
-            for i in range(n-1):
+            for i in range(n-h):
                 temp = 0.0
                 for k in range(self.k):
-                    temp += (y[i + 1] - k) ** 2 * prob[i+1,k]
+                    temp += (y[i + h] - k) ** 2 * prob[i+h,k]
                 
                 inside.append(temp)
             
@@ -1001,18 +994,16 @@ class convolutionNN(nn.Module):
         log_loss = torch.log(ground_lab + 1e-12)
         loss = -log_loss.sum()
 
+        transition_indicator = (y[h:] != y[:-h]).float()
         if self.cfg_sup.penalty_type == "ce_standard":
-            transition_indicator = (y[1:] != y[:-1]).float()
-            penalty = -self.cfg_sup.lam * (transition_indicator * log_loss[1:]).sum()
+            penalty = -self.cfg_sup.lam * (transition_indicator * log_loss[h:]).sum()
         elif self.cfg_sup.penalty_type == "ce_pairwise":
-            transition_indicator = (y[1:] != y[:-1]).float()
-            penalty = -self.cfg_sup.lam * (transition_indicator * (log_loss[1:] + log_loss[:-1])).sum()
+            penalty = -self.cfg_sup.lam * (transition_indicator * (log_loss[h:] + log_loss[:-h])).sum()
         elif self.cfg_sup.penalty_type == "margin_bar":
-            transition_indicator = (y[1:] != y[:-1]).float()
             diff_today_yesterday = []
 
-            for k in range(1, n):
-                yest_prb = prob[k, y[k-1]]
+            for k in range(h, n):
+                yest_prb = prob[k, y[k-h]]
                 today_prb = prob[k, y[k]]
 
                 diff = self.cfg_sup.margin + yest_prb - today_prb
@@ -1022,12 +1013,11 @@ class convolutionNN(nn.Module):
             penalty = self.cfg_sup.lam * (transition_indicator * (torch.log(1 + torch.exp(stacked_diff)))).sum()
 
         elif self.cfg_sup.penalty_type == "distance":
-            transition_indicator = (y[1:] != y[:-1]).float()
             inside = []
-            for i in range(n-1):
+            for i in range(n-h):
                 temp = 0.0
                 for k in range(self.k):
-                    temp += (y[i + 1] - k) ** 2 * prob[i+1,k]
+                    temp += (y[i + h] - k) ** 2 * prob[i+h,k]
                 
                 inside.append(temp)
             
