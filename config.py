@@ -46,13 +46,13 @@ class DataConfig:
 @dataclass
 class SupervisedConfig:
     #Data parameters
-    penalty_type : str = "ce_standard" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
+    penalty_type : str = "margin_bar" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
     evaluation_metric : int = 2 #1 or 2 for m1 or m2
     horizon : int = 21
 
     train_split : float = 0.75
     batch_size : int = 500
-    testing_method : str = "standard" # "walk forward" vs "standard"
+    testing_method : str = "walk_forward" # "walk forward" vs "standard"
     folds : int = 3
 
     lam : float = 2.0

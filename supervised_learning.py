@@ -427,8 +427,9 @@ def main():
             if c6 > 0:
                 print(f"Avg test M2        : {(test_m2_sum / c6):.4f}")
         print(classification_report(y_true_all, y_pred_all))
-        cm = confusion_matrix(y_true_all, y_pred_all)
+        cm = confusion_matrix(y_true_all, y_pred_all, labels = [0, 1, 2])
         disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Bull', 'Recovery', 'Crisis'])
+        
         # plt.show()
         disp.plot()
         plt.savefig('my_plot.png', dpi=300, bbox_inches='tight')
@@ -493,7 +494,7 @@ def main():
             preds_train = clf.predict(X_train_np)
             preds = clf.predict(X_test_np)
             print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
-        cm = confusion_matrix(y_test, preds)
+        cm = confusion_matrix(y_test, preds, labels = [0, 1, 2])
         disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Bull', 'Recovery', 'Crisis'])
         # plt.show()
         disp.plot()
@@ -608,6 +609,9 @@ class SoftmaxRegression:
 
         dZ = prob - one_hot
         dTheta = X.T @ dZ
+
+        if n <= h:
+            return dTheta
 
         transition_indicator = (y[h:] != y[:-h]).astype(float)
         if cfg_sup.penalty_type == "ce_standard":
