@@ -415,13 +415,13 @@ def main():
         if c2 > 0:
             print(f"Avg test accuracy  : {(test_sum / c2):.4f}")
         
-        if cfg_sup.evaluation_metric == 1: 
-            if c3 > 0: 
-                print(f"Avg train M1       : {(train_m1_sum / c3):.4f}")
-            if c4 > 0:
-                print(f"Avg test M1        : {(test_m1_sum / c4):.4f}")
+        # if cfg_sup.evaluation_metric == 1: 
+        if c3 > 0: 
+            print(f"Avg train M1       : {(train_m1_sum / c3):.4f}")
+        if c4 > 0:
+            print(f"Avg test M1        : {(test_m1_sum / c4):.4f}")
 
-        else: 
+        # else: 
             if c5 > 0:
                 print(f"Avg train M2       : {(train_m2_sum / c5):.4f}")
             if c6 > 0:
