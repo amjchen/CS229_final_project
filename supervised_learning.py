@@ -150,32 +150,33 @@ def print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup):
     m2_acc_tr = None
     m2_acc = None
 
-    if cfg_sup.evaluation_metric == 1:
-        m1_mask_tr = y_train_np[1:] != y_train_np[:-1]
-        m1_n_tr    = m1_mask_tr.sum()
+    # if cfg_sup.evaluation_metric == 1:
+    m1_mask_tr = y_train_np[1:] != y_train_np[:-1]
+    m1_n_tr    = m1_mask_tr.sum()
 
-        if m1_n_tr > 0: 
-            correct_m1_tr = (preds_train[1:][m1_mask_tr] == y_train_np[1:][m1_mask_tr]).sum()
-            m1_acc_tr = correct_m1_tr / m1_n_tr
-            print(f"Train Metric1 true transitions: {m1_n_tr}")
-            print(f"Train Metric1 correctly predicted transitions: {correct_m1_tr}")
-            print(f"Train Metric1 transition accuracy: {m1_acc_tr:.4f}")
-        else:
-            print("No metric1 defined in this training window")
-
-        m1_mask = y_test_np[1:] != y_test_np[:-1]
-        m1_n    = m1_mask.sum()
-
-        if m1_n > 0 : 
-            correct_m1 = (preds[1:][m1_mask] == y_test_np[1:][m1_mask]).sum()
-            m1_acc  = correct_m1/ m1_n
-            print(f"Test Metric1 true transitions: {m1_n}")
-            print(f"Test Metric1 correctly predicted transitions: {correct_m1}")
-            print(f"Test Metric1 transition accuracy: {m1_acc:.4f}")
-        else:
-            print("No metric 1 defined in this test window")
-
+    if m1_n_tr > 0: 
+        correct_m1_tr = (preds_train[1:][m1_mask_tr] == y_train_np[1:][m1_mask_tr]).sum()
+        m1_acc_tr = correct_m1_tr / m1_n_tr
+        print(f"Train Metric1 true transitions: {m1_n_tr}")
+        print(f"Train Metric1 correctly predicted transitions: {correct_m1_tr}")
+        print(f"Train Metric1 transition accuracy: {m1_acc_tr:.4f}")
     else:
+        print("No metric1 defined in this training window")
+
+    m1_mask = y_test_np[1:] != y_test_np[:-1]
+    m1_n    = m1_mask.sum()
+
+    if m1_n > 0 : 
+        correct_m1 = (preds[1:][m1_mask] == y_test_np[1:][m1_mask]).sum()
+        m1_acc  = correct_m1/ m1_n
+        print(f"Test Metric1 true transitions: {m1_n}")
+        print(f"Test Metric1 correctly predicted transitions: {correct_m1}")
+        print(f"Test Metric1 transition accuracy: {m1_acc:.4f}")
+    else:
+        print("No metric 1 defined in this test window")
+
+    # else:
+    if cfg_sup.evaluation_metric == 2:
         current_regime_train = supervised_df.loc[y_train.index, "regime"]
         future_regime_train = y_train
         predicted_regime_train = pd.Series(preds_train, index=y_train.index)
