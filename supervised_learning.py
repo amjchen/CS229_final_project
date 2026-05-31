@@ -283,7 +283,7 @@ def main():
     parser.add_argument("--gda", action="store_true")
     parser.add_argument("--neuralnet", action = "store_true")
     parser.add_argument("--tunelambda", action = "store_true")
-    parser.add_argument("-cnn", action = "store_true")
+    parser.add_argument("--cnn", action = "store_true")
     args = parser.parse_args()
 
     df_labeled = pd.read_csv(cfg.labeled_output_path, index_col=0, parse_dates=True)
