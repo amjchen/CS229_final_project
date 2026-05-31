@@ -61,7 +61,7 @@ class SupervisedConfig:
 
     #Softmax Parameters:
     max_iter: int = 10000
-
+    l2reg_stren: int = 2
 
     #Neural Network and CNN Parameters: 
     hidden_layer_neurons : tuple = (32, 16)

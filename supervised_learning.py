@@ -598,7 +598,10 @@ class SoftmaxRegression:
         else:
             penalty = 0
 
-        return loss + penalty
+        # reg = cfg_sup.l2reg_stren * np.linalg.norm(self.theta, "fro")**2
+        reg = cfg_sup.l2reg_stren * np.sum(self.theta[1:] ** 2)
+
+        return loss + penalty + reg
 
     def ce_grad(self, X, y):
         n = X.shape[0]
@@ -662,7 +665,10 @@ class SoftmaxRegression:
         else:
             penalty_grad = 0
 
-        return dTheta + penalty_grad
+        # reg_grad = 2 * cfg_sup.l2reg_stren * self.theta
+        reg_grad = np.zeros_like(self.theta)
+        reg_grad[1:] = 2 * cfg_sup.l2reg_stren * self.theta[1:]
+        return dTheta + penalty_grad + reg_grad
 
     def gradient_descent_epoch(self, X_shuffled, y_shuffled, learning_rate, batch_size):
         """
