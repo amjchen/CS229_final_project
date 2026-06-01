@@ -78,7 +78,7 @@ class SupervisedConfig:
     window_size : int = 21     #Length of the window 
     use_window : bool = False
     num_filters : int = 16
-    kernel_size : int = 3      #Number of steps to look ahead in the filter
+    kernel_size : int = 5      #Number of steps to look ahead in the filter
 
 
     def __post_init__(self):

@@ -238,15 +238,18 @@ def CV_for_lambda(current_regime, X, y, model_type):
     X_train_np = X_train.to_numpy(dtype = np.float64)
     X_test_np = scaler.transform(X.iloc[split:]).astype(np.float64)
     current_regime_fold = current_regime.iloc[:split]
+    current_regime_test = current_regime.iloc[split:]
     y_train = y.iloc[:split]
     y_test = y.iloc[split:]
 
     y_train_np = y_train.to_numpy(dtype = np.int64)
     y_test_np = y_test.to_numpy(dtype = np.int64)
+    current_regime_test_np = current_regime_test.to_numpy(dtype=np.int64)
 
-    global_best_lambda = cfg_sup.lam_values[0]
     global_best_score = -np.inf
     print(f"\n Tuning lambda | model = {model_type} penalty = {cfg_sup.penalty_type}")
+
+    lam, m2 = [], []
 
     for lmd in cfg_sup.lam_values:
         cfg_sup.lam = lmd
@@ -263,22 +266,44 @@ def CV_for_lambda(current_regime, X, y, model_type):
             clf.fit(X_train_np, y_train_np)        
 
         predicted_values = clf.predict(X_test_np)
-        indicator = y_test_np[1:] != y_test_np[:-1]
-        total_m1 = indicator.sum()
+        m1_indicator = y_test_np[1:] != y_test_np[:-1]
+        total_m1 = m1_indicator.sum()
 
         if total_m1 != 0:
-            summed = (predicted_values[1:][indicator] == y_test_np[1:][indicator]).sum()
-            score = summed / total_m1
+            summed = (predicted_values[1:][m1_indicator] == y_test_np[1:][m1_indicator]).sum()
+            m1_score = summed / total_m1
         else:
-            score = 0.0
-        
-        print(f"M1 value for lambda {lmd} = {score:.4f}")
-        if score > global_best_score:
-            global_best_score = score
-            best_lam = lmd
-    
-    print(f"Best Lambda = {best_lam}")
+            m1_score = 0.0
 
+        m2_indicator = current_regime_test_np != y_test_np
+        total_m2 = m2_indicator.sum()
+        if total_m2 > 0:
+            summed_2 = (predicted_values[m2_indicator] == y_test_np[m2_indicator]).sum()
+            m2_score = summed_2 / total_m2
+        else:
+            m2_score = 0.0
+
+        
+        print(f"M1 value for lambda {lmd} = {m1_score:.4f}")
+        print(f"M2 value for lambda {lmd} = {m2_score:.4f}")
+
+        m2.append(m2_score)
+        lam.append(lmd)
+
+        if m2_score > global_best_score:
+            global_best_score = m2_score
+            best_lam = lmd
+        
+    print(f"Best Lambda for M2 is {best_lam} with score {global_best_score:.4f}")
+    plt.figure()
+    plt.plot(lam, m2, marker = 'o', label = "M2 (true transition accuracy)")
+    plt.axvline(best_lam, color = "red", linestyle = '--', label = f"best lambda {best_lam}")
+    plt.xlabel("Lambda")
+    plt.ylabel("M2 Score")
+    plt.title(f"CV for lambda for {model_type} using {cfg_sup.penalty_type}")
+    plt.legend()
+    plt.savefig("cv_lambda.png")
+    plt.close()
 
 
 def main():
