@@ -99,6 +99,7 @@ def build_supervised_regime_dataset(
         y = pd.Series(y_vals, index = index, dtype = int)
         supervised_df = df.loc[index].copy()
         supervised_df["target"] = y.values
+        current_regime = pd.Series(current_regime, index=index)
 
 
     else: 
@@ -123,7 +124,7 @@ def build_supervised_regime_dataset(
 
         # Target
         y = supervised_df["target"].astype(int)
-        current_regime = df[target_col]
+        current_regime = supervised_df[target_col]
 
     print(f"X shape: {X.shape}")
     print(f"y shape: {y.shape}")
@@ -329,13 +330,14 @@ def main():
 
             print(f"\n===== Fold {i+1} | train [0:{beg_test_idx}]  test [{beg_test_idx}:{end_test_idx}] =====")
 
-            current_regime_fold = current_regime[:beg_test_idx]
+            current_regime_fold = current_regime.iloc[:beg_test_idx]
             if args.softmax:
                 print("SOFTMAX REGRESSION")
                 clf = SoftmaxRegression(current_regime=current_regime_fold, max_iter=cfg_sup.max_iter, eps=1e-6, k=cfg.kmeans_k)
                 clf.fit(X_train_np, y_train_np, learning_rate=cfg_sup.learning_rate, batch_size=cfg_sup.batch_size)
                 preds_train = clf.predict(X_train_np)
                 preds = clf.predict(X_test_np)
+                pred_proba = clf.predict_proba(X_test_np)
                 print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
 
             if args.gda:
@@ -357,7 +359,7 @@ def main():
 
                 preds_train = clf.predict(X_train_np)
                 preds = clf.predict(X_test_np)
-
+                pred_proba = clf.predict_proba(X_test_np)
                 print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
 
             if args.cnn: 
@@ -366,15 +368,19 @@ def main():
                 window_size = X_train_np.shape[1]
                 k = cfg.kmeans_k
 
-                clf = convolutionNN(torch.as_tensor(current_regime_fold), dim_in, window_size, k, cfg_sup)
+                clf = convolutionNN(torch.as_tensor(current_regime_fold.to_numpy().copy()), dim_in, window_size, k, cfg_sup)
                 clf.setup_cnn()
                 clf.fit(X_train_np, y_train_np)
                 preds_train = clf.predict(X_train_np)
                 preds = clf.predict(X_test_np)
+                pred_proba = clf.predict_proba(X_test_np)
                 print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
-            results[f"fold_{i}"] = {"true" : y_test.to_numpy(dtype=np.int64), "pred" : preds}
+            results[f"fold_{i}"] = {"true" : y_test.to_numpy(dtype=np.int64), "pred" : preds, "pred_proba" : pred_proba}
         y_true_all = [item for f in results.values() for item in f["true"]]
         y_pred_all = [item for f in results.values() for item in f["pred"]]
+        # y_pred_proba_all = [item for f in results.values() for item in f["pred_proba"]]
+        y_pred_proba_all = np.vstack([f["pred_proba"] for f in results.values()])
+        print(len(y_true_all), len(y_pred_all), y_pred_proba_all.shape)
         
         train_sum = 0
         test_sum = 0
@@ -436,6 +442,16 @@ def main():
         # plt.show()
         disp.plot()
         plt.savefig('my_plot.png', dpi=300, bbox_inches='tight')
+
+        # plots
+        y_true_all = np.array(y_true_all)
+        y_pred_all = np.array(y_pred_all)
+        plot_regime_timeline(
+            y_true_all,
+            y_pred_all,
+            y_pred_proba_all,
+            save_path="regime_timeline.png"
+        )
 
     else: 
         split_idx = int(len(X) * cfg_sup.train_split)
@@ -503,7 +519,113 @@ def main():
         disp.plot()
         plt.savefig('my_plot.png', dpi=300, bbox_inches='tight')
 
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 
+def plot_regime_timeline(y_true, y_pred, pred_proba, save_path=None):
+    """
+    Parameters
+    ----------
+    y_true : (N,)
+    y_pred : (N,)
+    pred_proba : (N,3)
+
+    Creates 5 stacked number-line style plots:
+        True regime
+        Predicted regime
+        P(Bull)
+        P(Recovery)
+        P(Crisis)
+    """
+
+    N = len(y_true)
+    bull_color = "#2ca02c"      # green
+    rec_color = "#ffbf00"       # gold
+    crisis_color = "#d62728"    # red
+
+    regime_colors = np.array([
+        plt.matplotlib.colors.to_rgb(bull_color),
+        plt.matplotlib.colors.to_rgb(rec_color),
+        plt.matplotlib.colors.to_rgb(crisis_color),
+    ])
+
+    true_strip = regime_colors[y_true]
+    pred_strip = regime_colors[y_pred]
+
+    bull_cmap = LinearSegmentedColormap.from_list(
+        "bull_prob",
+        ["white", bull_color]
+    )
+    rec_cmap = LinearSegmentedColormap.from_list(
+        "rec_prob",
+        ["white", rec_color]
+    )
+    crisis_cmap = LinearSegmentedColormap.from_list(
+        "crisis_prob",
+        ["white", crisis_color]
+    )
+
+    fig, axes = plt.subplots(5, 1, figsize=(18, 5), sharex=True, gridspec_kw={"hspace": 0.15})
+
+    # "true" regimes
+    axes[0].imshow(
+        true_strip[np.newaxis, :, :],
+        aspect="auto"
+    )
+    axes[0].set_ylabel("True")
+
+    # predicted labels
+    axes[1].imshow(
+        pred_strip[np.newaxis, :, :],
+        aspect="auto"
+    )
+    axes[1].set_ylabel("Pred")
+
+    # bull proba
+    axes[2].imshow(
+        pred_proba[:, 0][np.newaxis, :],
+        aspect="auto",
+        cmap=bull_cmap,
+        vmin=0,
+        vmax=1
+    )
+    axes[2].set_ylabel("Bull")
+
+    # recovery proba
+    axes[3].imshow(
+        pred_proba[:, 1][np.newaxis, :],
+        aspect="auto",
+        cmap=rec_cmap,
+        vmin=0,
+        vmax=1
+    )
+    axes[3].set_ylabel("Recovery")
+
+    # crisis proba
+    axes[4].imshow(
+        pred_proba[:, 2][np.newaxis, :],
+        aspect="auto",
+        cmap=crisis_cmap,
+        vmin=0,
+        vmax=1
+    )
+    axes[4].set_ylabel("Crisis")
+
+    for ax in axes:
+        ax.set_yticks([])
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_visible(False)
+
+    axes[-1].set_xlabel("Time")
+
+    plt.suptitle("Regime Predictions and Class Probabilities")
+
+    if save_path is not None:
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+
+    plt.show()
 
 class SoftmaxRegression:
     """Softmax regression with SGD as the solver.
@@ -652,11 +774,10 @@ class SoftmaxRegression:
 
                 sigmoid = 1 / (1+np.exp(-s))
                 coeff = cfg_sup.lam * sigmoid
-                grad_s = (
-                    pc * np.eye(self.k)[c]
-                    - py * np.eye(self.k)[yi]
-                    - (pc - py) * prob[i]
-                )
+                
+                grad_s = -(pc - py) * prob[i]
+                grad_s[c] += pc
+                grad_s[yi] -= py
 
                 penalty_dZ[i] = coeff * grad_s
 
@@ -759,6 +880,11 @@ class SoftmaxRegression:
         x_inter = self.add_intercept(x.copy())
         logits = x_inter @ self.theta
         return np.argmax(self.softmax(logits), axis=1)
+    
+    def predict_proba(self, x):
+        x_inter = self.add_intercept(x.copy())
+        logits = x_inter @ self.theta
+        return self.softmax(logits)
 
 
 class GDA_MLE:          # i think this has some stability issues rn, but maybe we wont even use this 
@@ -969,6 +1095,21 @@ class Neural_Networks(nn.Module):
             loss.backward()
             optimizer.step()
             scheduler.step()
+    
+    def predict_proba(self, x_new):
+        self.eval()
+
+        with torch.no_grad():
+            X_mat_new = torch.tensor(x_new, dtype=torch.float32)
+
+            score = self.forward(X_mat_new)
+            max_score = torch.max(score, dim=1, keepdim=True).values
+
+            numerator = torch.exp(score - max_score)
+            denominator = numerator.sum(dim=1, keepdim=True)
+
+            softmax_x_prob = numerator / denominator
+            return softmax_x_prob.cpu().numpy()
 
     def predict(self, x_new):
         self.eval()
@@ -1071,39 +1212,6 @@ class convolutionNN(nn.Module):
             penalty = 0
 
         return loss + penalty
-        # if self.cfg_sup.penalty_type == "ce_standard":
-        #     penalty = -self.cfg_sup.lam * (transition_indicator * log_loss[h:]).sum()
-        # elif self.cfg_sup.penalty_type == "ce_pairwise":
-        #     penalty = -self.cfg_sup.lam * (transition_indicator * (log_loss[h:] + log_loss[:-h])).sum()
-        # elif self.cfg_sup.penalty_type == "margin_bar":
-        #     diff_today_yesterday = []
-
-        #     for k in range(h, n):
-        #         yest_prb = prob[k, y[k-h]]
-        #         today_prb = prob[k, y[k]]
-
-        #         diff = self.cfg_sup.margin + yest_prb - today_prb
-        #         diff_today_yesterday.append(diff)
-
-        #     stacked_diff = torch.stack(diff_today_yesterday)
-        #     penalty = self.cfg_sup.lam * (transition_indicator * (torch.log(1 + torch.exp(stacked_diff)))).sum()
-
-        # elif self.cfg_sup.penalty_type == "distance":
-        #     inside = []
-        #     for i in range(n-h):
-        #         temp = 0.0
-        #         for k in range(self.k):
-        #             temp += (y[i + h] - k) ** 2 * prob[i+h,k]
-                
-        #         inside.append(temp)
-            
-        #     inside = torch.stack(inside)
-        #     penalty = self.cfg_sup.lam * (transition_indicator * inside).sum()
-
-        # else:
-        #     penalty = 0
-
-        # return loss + penalty
 
     def fit(self, x, y):
         self.train()
@@ -1128,6 +1236,21 @@ class convolutionNN(nn.Module):
             loss.backward()
             optimizer.step()
             scheduler.step()
+
+    def predict_proba(self, x_new):
+        self.eval()
+
+        with torch.no_grad():
+            X_mat_new = torch.tensor(x_new, dtype=torch.float32)
+
+            score = self.forward(X_mat_new)
+            max_score = torch.max(score, dim=1, keepdim=True).values
+
+            numerator = torch.exp(score - max_score)
+            denominator = numerator.sum(dim=1, keepdim=True)
+
+            softmax_x_prob = numerator / denominator
+            return softmax_x_prob.cpu().numpy()
     
     def predict(self, x_new):
         self.eval()
