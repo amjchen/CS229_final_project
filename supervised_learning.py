@@ -229,7 +229,7 @@ def print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup):
         "test_m2" : m2_acc,
     })
 
-def CV_for_lambda(X, y, model_type):
+def CV_for_lambda(current_regime, X, y, model_type):
     n = len(X)
     split = n // 2
 
@@ -237,7 +237,7 @@ def CV_for_lambda(X, y, model_type):
     X_train, scaler = standardize_data(train_part_X)
     X_train_np = X_train.to_numpy(dtype = np.float64)
     X_test_np = scaler.transform(X.iloc[split:]).astype(np.float64)
-
+    current_regime_fold = current_regime.iloc[:split]
     y_train = y.iloc[:split]
     y_test = y.iloc[split:]
 
@@ -251,14 +251,14 @@ def CV_for_lambda(X, y, model_type):
     for lmd in cfg_sup.lam_values:
         cfg_sup.lam = lmd
         if model_type == "softmax":
-            clf = SoftmaxRegression(max_iter = cfg_sup.max_iter, eps = 1e-6, k = cfg.kmeans_k)
+            clf = SoftmaxRegression(current_regime=current_regime_fold, max_iter = cfg_sup.max_iter, eps = 1e-6, k = cfg.kmeans_k)
             clf.fit(X_train_np, y_train_np, learning_rate = cfg_sup.learning_rate, batch_size = cfg_sup.batch_size)
         elif model_type == "gda":
             clf = GDA_SGD(k = cfg.kmeans_k)
             clf.fit(X_train_np, y_train_np)
         elif model_type == "neuralnet":
             x_shape = X_train_np.shape[1]
-            clf = Neural_Networks(x_shape, cfg.kmeans_k, cfg_sup)
+            clf = Neural_Networks(torch.as_tensor(current_regime_fold.to_numpy().copy()), x_shape, cfg.kmeans_k, cfg_sup)
             clf.setup_nn()
             clf.fit(X_train_np, y_train_np)        
 
@@ -300,7 +300,7 @@ def main():
             model_type = "gda"
         elif args.neuralnet:
             model_type = "neuralnet"
-        CV_for_lambda(X, y, model_type)
+        CV_for_lambda(current_regime, X, y, model_type)
 
     if cfg_sup.testing_method == "walk_forward":
         n = len(X)
