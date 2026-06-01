@@ -46,7 +46,7 @@ class DataConfig:
 @dataclass
 class SupervisedConfig:
     #Data parameters
-    penalty_type : str = "margin_bar" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
+    penalty_type : str = "distance" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
     evaluation_metric : int = 2 #1 or 2 for m1 or m2
     horizon : int = 21
 
@@ -55,7 +55,7 @@ class SupervisedConfig:
     testing_method : str = "walk_forward" # "walk forward" vs "standard"
     folds : int = 3
 
-    lam : float = 2.0
+    lam : float = 20.0
     lam_values : List[float] = None
     margin : float = 0.5
 
