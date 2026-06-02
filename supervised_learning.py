@@ -10,7 +10,7 @@ from sklearn.metrics import classification_report, confusion_matrix, ConfusionMa
 from data_munging import standardize_data
 from sklearn.model_selection import TimeSeriesSplit
 from collections import defaultdict
-
+from matplotlib.colors import LinearSegmentedColormap
 from config import DataConfig, SupervisedConfig
 
 cfg = DataConfig()
@@ -308,6 +308,8 @@ def CV_for_lambda(current_regime, X, y, model_type):
     plt.savefig("cv_lambda.png")
     plt.close()
 
+    return best_lam
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -328,7 +330,8 @@ def main():
             model_type = "gda"
         elif args.neuralnet:
             model_type = "neuralnet"
-        CV_for_lambda(current_regime, X, y, model_type)
+        cfg_sup.lam = CV_for_lambda(current_regime, X, y, model_type)
+        print("updated cfg_sup.lam to be best lambda from cv = ", cfg_sup.lam)
 
     if cfg_sup.testing_method == "walk_forward":
         n = len(X)
@@ -547,9 +550,7 @@ def main():
         disp.plot()
         plt.savefig('my_plot.png', dpi=300, bbox_inches='tight')
 
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
+
 
 def plot_regime_timeline(y_true, y_pred, pred_proba, save_path=None):
     """
