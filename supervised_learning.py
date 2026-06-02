@@ -232,6 +232,12 @@ def print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup):
     })
 
 def CV_for_lambda(current_regime, X, y, model_type):
+    n = len(X)
+    cutoff = n // 2
+    X = X.iloc[:cutoff]
+    y = y.iloc[:cutoff]
+    current_regime = current_regime.iloc[:cutoff]
+
     function_split = TimeSeriesSplit(n_splits= cfg_sup.folds)
     scores = defaultdict(list)
 
