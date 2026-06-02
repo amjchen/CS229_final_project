@@ -18,7 +18,13 @@ cfg_sup = SupervisedConfig()
 fold_results = []
 h = cfg_sup.horizon
 
-
+plt.rc('font', size=20)         
+plt.rc('axes', titlesize=20)    
+plt.rc('axes', labelsize=20)    
+plt.rc('xtick', labelsize=16)   
+plt.rc('ytick', labelsize=16)   
+plt.rc('legend', fontsize=16)   
+plt.rc('figure', titlesize=22) 
 
 def build_supervised_regime_dataset(
     df: pd.DataFrame,
@@ -485,11 +491,11 @@ def main():
                 print(f"Avg test M2        : {(test_m2_sum / c6):.4f}")
         print(classification_report(y_true_all, y_pred_all))
         cm = confusion_matrix(y_true_all, y_pred_all, labels = [0, 1, 2])
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Bull', 'Recovery', 'Crisis'])
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['0', '1', '2'])
         
         # plt.show()
         disp.plot()
-        plt.savefig('my_plot.png', dpi=300, bbox_inches='tight')
+        plt.savefig('confusion_mat.png', dpi=300, bbox_inches='tight')
 
         # plots
         y_true_all = np.array(y_true_all)
@@ -562,7 +568,7 @@ def main():
             preds = clf.predict(X_test_np)
             print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
         cm = confusion_matrix(y_test, preds, labels = [0, 1, 2])
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Bull', 'Recovery', 'Crisis'])
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['0', '1', '2'])
         # plt.show()
         disp.plot()
         plt.savefig('my_plot.png', dpi=300, bbox_inches='tight')
@@ -636,7 +642,7 @@ def plot_regime_timeline(y_true, y_pred, pred_proba, save_path=None):
         vmin=0,
         vmax=1
     )
-    axes[2].set_ylabel("Bull")
+    axes[2].set_ylabel("0")
 
     # recovery proba
     axes[3].imshow(
@@ -646,7 +652,7 @@ def plot_regime_timeline(y_true, y_pred, pred_proba, save_path=None):
         vmin=0,
         vmax=1
     )
-    axes[3].set_ylabel("Recovery")
+    axes[3].set_ylabel("1")
 
     # crisis proba
     axes[4].imshow(
@@ -656,7 +662,7 @@ def plot_regime_timeline(y_true, y_pred, pred_proba, save_path=None):
         vmin=0,
         vmax=1
     )
-    axes[4].set_ylabel("Crisis")
+    axes[4].set_ylabel("2")
 
     for ax in axes:
         ax.set_yticks([])
