@@ -8,6 +8,8 @@ import contextlib
 import io
 from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay
 from data_munging import standardize_data
+from sklearn.model_selection import TimeSeriesSplit
+from collections import defaultdict
 
 from config import DataConfig, SupervisedConfig
 
@@ -230,73 +232,68 @@ def print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup):
     })
 
 def CV_for_lambda(current_regime, X, y, model_type):
-    n = len(X)
-    split = n // 2
+    function_split = TimeSeriesSplit(n_splits= cfg_sup.folds)
+    scores = defaultdict(list)
 
-    train_part_X = X.iloc[:split]
-    X_train, scaler = standardize_data(train_part_X)
-    X_train_np = X_train.to_numpy(dtype = np.float64)
-    X_test_np = scaler.transform(X.iloc[split:]).astype(np.float64)
-    current_regime_fold = current_regime.iloc[:split]
-    current_regime_test = current_regime.iloc[split:]
-    y_train = y.iloc[:split]
-    y_test = y.iloc[split:]
+    print(f"\n Tuning lambda | model = {model_type} penalty = {cfg_sup.penalty_type}, using {cfg_sup.folds} folds")
 
-    y_train_np = y_train.to_numpy(dtype = np.int64)
-    y_test_np = y_test.to_numpy(dtype = np.int64)
-    current_regime_test_np = current_regime_test.to_numpy(dtype=np.int64)
-
-    global_best_score = -np.inf
-    print(f"\n Tuning lambda | model = {model_type} penalty = {cfg_sup.penalty_type}")
-
-    lam, m2 = [], []
-
-    for lmd in cfg_sup.lam_values:
-        cfg_sup.lam = lmd
-        if model_type == "softmax":
-            clf = SoftmaxRegression(current_regime=current_regime_fold, max_iter = cfg_sup.max_iter, eps = 1e-6, k = cfg.kmeans_k)
-            clf.fit(X_train_np, y_train_np, learning_rate = cfg_sup.learning_rate, batch_size = cfg_sup.batch_size)
-        elif model_type == "gda":
-            clf = GDA_SGD(k = cfg.kmeans_k)
-            clf.fit(X_train_np, y_train_np)
-        elif model_type == "neuralnet":
-            x_shape = X_train_np.shape[1]
-            clf = Neural_Networks(torch.as_tensor(current_regime_fold.to_numpy().copy()), x_shape, cfg.kmeans_k, cfg_sup)
-            clf.setup_nn()
-            clf.fit(X_train_np, y_train_np)        
-
-        predicted_values = clf.predict(X_test_np)
-        m1_indicator = y_test_np[1:] != y_test_np[:-1]
-        total_m1 = m1_indicator.sum()
-
-        if total_m1 != 0:
-            summed = (predicted_values[1:][m1_indicator] == y_test_np[1:][m1_indicator]).sum()
-            m1_score = summed / total_m1
-        else:
-            m1_score = 0.0
-
-        m2_indicator = current_regime_test_np != y_test_np
-        total_m2 = m2_indicator.sum()
-        if total_m2 > 0:
-            summed_2 = (predicted_values[m2_indicator] == y_test_np[m2_indicator]).sum()
-            m2_score = summed_2 / total_m2
-        else:
-            m2_score = 0.0
-
+    
+    for fold, (taidx, teidx) in enumerate(function_split.split(X)):
+        X_data_cur, scaler = standardize_data(X.iloc[taidx])
+        X_train_np = X_data_cur.to_numpy(dtype = np.float64)
+        X_test = scaler.transform(X.iloc[teidx])
+        X_test_np = X_test.astype(dtype = np.float64)
         
-        print(f"M1 value for lambda {lmd} = {m1_score:.4f}")
-        print(f"M2 value for lambda {lmd} = {m2_score:.4f}")
+        current_regime_fold = current_regime.iloc[taidx]
+        current_regime_test = current_regime.iloc[teidx]
+        current_regime_test_np = current_regime_test.to_numpy(dtype = np.int64)
 
-        m2.append(m2_score)
-        lam.append(lmd)
+        y_train = y.iloc[taidx]
+        y_test = y.iloc[teidx]
+        y_train_np = y_train.to_numpy(dtype = np.int64)
+        y_test_np = y_test.to_numpy(dtype = np.int64)
 
-        if m2_score > global_best_score:
-            global_best_score = m2_score
-            best_lam = lmd
-        
-    print(f"Best Lambda for M2 is {best_lam} with score {global_best_score:.4f}")
+        for lmd in cfg_sup.lam_values:
+            cfg_sup.lam = lmd
+            if model_type == "softmax":
+                clf = SoftmaxRegression(current_regime=current_regime_fold, max_iter = cfg_sup.max_iter, eps = 1e-6, k = cfg.kmeans_k)
+                clf.fit(X_train_np, y_train_np, learning_rate = cfg_sup.learning_rate, batch_size = cfg_sup.batch_size)
+            elif model_type == "gda":
+                clf = GDA_SGD(k = cfg.kmeans_k)
+                clf.fit(X_train_np, y_train_np)
+            elif model_type == "neuralnet":
+                x_shape = X_train_np.shape[1]
+                clf = Neural_Networks(torch.as_tensor(current_regime_fold.to_numpy().copy()), x_shape, cfg.kmeans_k, cfg_sup)
+                clf.setup_nn()
+                clf.fit(X_train_np, y_train_np)        
+
+            predicted_values = clf.predict(X_test_np)
+
+            m2_indicator = current_regime_test_np != y_test_np
+            total_m2 = m2_indicator.sum()
+            if total_m2 > 0:
+                summed_2 = (predicted_values[m2_indicator] == y_test_np[m2_indicator]).sum()
+                m2_score = summed_2 / total_m2
+            else:
+                m2_score = 0.0
+            
+
+            scores[lmd].append(m2_score)
+    
+
+    avg_scores = {}
+    for lmd, s in scores.items():
+        avg_scores[lmd] = np.mean(s)
+    
+    best_lam = max(avg_scores, key = avg_scores.get)
+
+    print(f"M2 best lambda is {best_lam} with score of {avg_scores[best_lam]:.4f}")
+    
+    keys = list(avg_scores.keys())
+    y_list = list(avg_scores.values())
+
     plt.figure()
-    plt.plot(lam, m2, marker = 'o', label = "M2 (true transition accuracy)")
+    plt.plot(keys, y_list, marker = 'o', label = "M2 (true transition accuracy)")
     plt.axvline(best_lam, color = "red", linestyle = '--', label = f"best lambda {best_lam}")
     plt.xlabel("Lambda")
     plt.ylabel("M2 Score")

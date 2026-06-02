@@ -46,7 +46,7 @@ class DataConfig:
 @dataclass
 class SupervisedConfig:
     #Data parameters
-    penalty_type : str = "distance" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
+    penalty_type : str = "ce_standard" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
     evaluation_metric : int = 2 #1 or 2 for m1 or m2
     horizon : int = 21
 
