@@ -234,7 +234,11 @@ def print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup):
 def CV_for_lambda(current_regime, X, y, model_type):
     n = len(X)
     cutoff = n // 2
-    X = X.iloc[:cutoff]
+    if model_type == "cnn":
+        X = X[:cutoff]
+    else:
+        X = X.iloc[:cutoff]
+        
     y = y.iloc[:cutoff]
     current_regime = current_regime.iloc[:cutoff]
 
@@ -245,10 +249,14 @@ def CV_for_lambda(current_regime, X, y, model_type):
 
     
     for fold, (taidx, teidx) in enumerate(function_split.split(X)):
-        X_data_cur, scaler = standardize_data(X.iloc[taidx])
-        X_train_np = X_data_cur.to_numpy(dtype = np.float64)
-        X_test = scaler.transform(X.iloc[teidx])
-        X_test_np = X_test.astype(dtype = np.float64)
+        if model_type == "cnn":
+            X_train_np = X[taidx]
+            X_test_np = X[teidx]
+        else:
+            X_data_cur, scaler = standardize_data(X.iloc[taidx])
+            X_train_np = X_data_cur.to_numpy(dtype = np.float64)
+            X_test = scaler.transform(X.iloc[teidx])
+            X_test_np = X_test.astype(dtype = np.float64)
         
         current_regime_fold = current_regime.iloc[taidx]
         current_regime_test = current_regime.iloc[teidx]
@@ -271,7 +279,14 @@ def CV_for_lambda(current_regime, X, y, model_type):
                 x_shape = X_train_np.shape[1]
                 clf = Neural_Networks(torch.as_tensor(current_regime_fold.to_numpy().copy()), x_shape, cfg.kmeans_k, cfg_sup)
                 clf.setup_nn()
-                clf.fit(X_train_np, y_train_np)        
+                clf.fit(X_train_np, y_train_np)     
+            elif model_type == "cnn":
+                dim_in = X_train_np.shape[2]
+                window_size = X_train_np.shape[1]
+                input_met = torch.as_tensor(current_regime_fold.to_numpy().copy())
+                clf = convolutionNN(input_met, dim_in, window_size, cfg.kmeans_k, cfg_sup)
+                clf.setup_cnn()
+                clf.fit(X_train_np, y_train_np)
 
             predicted_values = clf.predict(X_test_np)
 
@@ -328,6 +343,8 @@ def main():
             model_type = "gda"
         elif args.neuralnet:
             model_type = "neuralnet"
+        elif args.cnn:
+            model_type = "cnn"
         CV_for_lambda(current_regime, X, y, model_type)
 
     if cfg_sup.testing_method == "walk_forward":
