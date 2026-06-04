@@ -7,7 +7,7 @@ class DataConfig:
     #Data paths
     features_path : str = "market_data/features.csv"
     prices_path : str = "market_data/closing_prices.csv"
-    output_path         : str = "market_data/model_features.cvs"
+    output_path : str = "market_data/model_features.cvs"
     labeled_output_path : str = "market_data/features_with_labels.csv"
 
  
