@@ -4,8 +4,6 @@ import matplotlib.pyplot as plt
 import argparse
 import torch
 import torch.nn as nn
-import contextlib
-import io
 from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay
 from data_munging import standardize_data
 from sklearn.model_selection import TimeSeriesSplit

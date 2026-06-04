@@ -72,37 +72,41 @@ def build_macro_features(daily_index: pd.DatetimeIndex) -> pd.DataFrame:
     unemp = data['unemp'].copy()
     unemp.index = pd.to_datetime(unemp.index)
     unemp_change = unemp.diff() 
-    unemp_diff3  = unemp.diff(3)   
-    unemp_lag3   = unemp.shift(3) 
+    unemp_diff3 = unemp.diff(3)   
+    unemp_lag3 = unemp.shift(3) 
     unemp.index += pd.DateOffset(days=30)
+
+
     for s in [unemp_change, unemp_diff3, unemp_lag3]:
         s.index = unemp.index
-    macro['unemp']        = unemp.reindex(daily_index, method='ffill')
+    macro['unemp'] = unemp.reindex(daily_index, method='ffill')
     macro['unemp_change'] = unemp_change.reindex(daily_index, method='ffill')
-    macro['unemp_diff3']  = unemp_diff3.reindex(daily_index, method='ffill')
-    macro['unemp_lag3']   = unemp_lag3.reindex(daily_index, method='ffill')
+    macro['unemp_diff3'] = unemp_diff3.reindex(daily_index, method='ffill')
+    macro['unemp_lag3'] = unemp_lag3.reindex(daily_index, method='ffill')
 
     cpi = data['cpi'].copy()
     cpi.index = pd.to_datetime(cpi.index)
-    cpi_yoy      = cpi.pct_change(12) * 100
-    cpi_mom      = cpi.pct_change(1) * 100   
+    cpi_yoy = cpi.pct_change(12) * 100
+    cpi_mom = cpi.pct_change(1) * 100   
     cpi_yoy_lag3 = cpi_yoy.shift(3)          
     cpi.index += pd.DateOffset(days=12)
+
+    
     for s in [cpi_yoy, cpi_mom, cpi_yoy_lag3]:
         s.index = cpi.index
-    macro['cpi']          = cpi.reindex(daily_index, method='ffill')
-    macro['cpi_yoy']      = cpi_yoy.reindex(daily_index, method='ffill')
-    macro['cpi_mom']      = cpi_mom.reindex(daily_index, method='ffill')
+    macro['cpi'] = cpi.reindex(daily_index, method='ffill')
+    macro['cpi_yoy'] = cpi_yoy.reindex(daily_index, method='ffill')
+    macro['cpi_mom'] = cpi_mom.reindex(daily_index, method='ffill')
     macro['cpi_yoy_lag3'] = cpi_yoy_lag3.reindex(daily_index, method='ffill')
 
     baa = data['baa'].copy()
     baa.index = pd.to_datetime(baa.index)
     gs3 = data['gs3'].copy()
     gs3.index = pd.to_datetime(gs3.index)
-    corp_spread       = baa - gs3
+    corp_spread = baa - gs3
     corp_spread_diff1 = corp_spread.diff(1)  
     corp_spread_diff3 = corp_spread.diff(3)  
-    macro['corp_3yr_spread']       = corp_spread.reindex(daily_index, method='ffill')
+    macro['corp_3yr_spread'] = corp_spread.reindex(daily_index, method='ffill')
     macro['corp_3yr_spread_diff1'] = corp_spread_diff1.reindex(daily_index, method='ffill')
     macro['corp_3yr_spread_diff3'] = corp_spread_diff3.reindex(daily_index, method='ffill')
 
@@ -147,9 +151,9 @@ def main():
         if "close" in df.columns
     })
     close_prices.index = pd.to_datetime(close_prices.index)
-    close_prices.sort_index(inplace=True)
+    close_prices.sort_index(inplace = True)
 
-    close_prices.ffill(inplace=True)
+    close_prices.ffill(inplace = True)
 
     path_prices = os.path.join(out, "closing_prices.csv")
     close_prices.to_csv(path_prices)
