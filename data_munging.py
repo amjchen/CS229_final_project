@@ -6,6 +6,7 @@ from config import DataConfig
 
 
 
+
 cfg = DataConfig() 
 
 features = pd.read_csv(cfg.features_path, index_col = "date", parse_dates = True)
