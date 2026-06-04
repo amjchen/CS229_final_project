@@ -12,9 +12,7 @@ features = pd.read_csv(cfg.features_path, index_col = "date", parse_dates = True
 prices = pd.read_csv(cfg.prices_path, index_col = "date", parse_dates = True)
 
 def remove_outliers(df):
-    """
-    Removing the lower % and upper %% of the data and calling them outliers
-    """
+    #Remove Outliers through winsorizing
     for col in df.columns:
         lo = df[col].quantile(cfg.winsorize_lower)
         hi = df[col].quantile(cfg.winsorize_upper)
@@ -24,14 +22,13 @@ def remove_outliers(df):
 
 
 def standardize_data(df):
-    """
-    Standardizes Data
-    """
+    #Standardizes data
     scaler = StandardScaler()
     scaled = scaler.fit_transform(df)
     return pd.DataFrame(scaled, index = df.index, columns = df.columns), scaler
 
 def derive_features(features, prices):
+    #Making the features make sense through some transformations
     df = features.copy()
 
     #Yield Curve spread

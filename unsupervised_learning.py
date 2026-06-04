@@ -22,15 +22,15 @@ def elbow_plot(X: np.ndarray, save_path: str = "market_data/elbow_plot.png"):
         km = KMeans(n_clusters=k, random_state=42, n_init=10)
         km.fit(X)
         inertias.append(km.inertia_)
-        print(f"  K={k:2d}  inertia={km.inertia_:,.0f}")
+        print(f"K={k:2d}inertia={km.inertia_:,.0f}")
         labels = km.labels_
         s_score = silhouette_score(X, labels)
         silhouette_scores.append(s_score)
-        print(f"  K={k:2d}  silhouette score={s_score}")
+        print(f"K={k:2d} silhouette score={s_score}")
 
     plt.figure()
-    plt.plot(list(k_range), inertias, marker="o", linewidth=2)
-    plt.axvline(x=cfg.kmeans_k, color="red", linestyle="--", alpha=0.7, label=f"cfg.kmeans_k = {cfg.kmeans_k}")
+    plt.plot(list(k_range), inertias, marker = "o", linewidth = 2)
+    plt.axvline(x=cfg.kmeans_k, color = "red", linestyle = "--", alpha = 0.7, label = f"cfg.kmeans_k = {cfg.kmeans_k}")
 
     plt.xlabel("K (number of clusters)")
     plt.ylabel("Inertia (within-cluster SSE)")
@@ -43,7 +43,7 @@ def elbow_plot(X: np.ndarray, save_path: str = "market_data/elbow_plot.png"):
 
 def smooth_labels(labels: np.ndarray, index: pd.DatetimeIndex, window: int):
     #Rolling mode over `window` days to kill spurious single-day regime flips 
-    s = pd.Series(labels, index=index, dtype=float)
+    s = pd.Series(labels, index = index, dtype=float)
 
     ss = s.rolling(window=window, center=True, min_periods=1)
     smoothed = ss.apply(lambda x: scipy_mode(x, keepdims=True).mode[0])
