@@ -21,8 +21,8 @@ data = {
     'gs3': fred.get_series('GS3'),   # 3-Year Treasury yield for corporate spread
 }
 
-END_DATE = datetime.today().strftime("%Y-%m-%d")
-START_DATE = (datetime.today() - timedelta(days=365 * 50)).strftime("%Y-%m-%d")
+end_date = datetime.today().strftime("%Y-%m-%d")
+start_date = (datetime.today() - timedelta(days=365 * 50)).strftime("%Y-%m-%d")
 
 equity_ticks = ["^GSPC", "^DJI", "^IXIC", "^RUT"]
 
@@ -34,20 +34,9 @@ out = "market_data"
 real_windows = [21, 63, 126] 
 
 def fetch_ticker(ticker: str, start: str, end: str):
-    print(f"  Fetching {ticker} ...")
+    print(f"Fetching {ticker} ...")
 
-    df = yf.download(
-        ticker,
-        start=start,
-        end=end,
-        auto_adjust=True,
-        progress=False,
-        group_by="column",
-    )
-
-    if df.empty:
-        print(f"  WARNING: No data returned for {ticker}")
-        return pd.DataFrame()
+    df = yf.download(ticker, start=start,  end=end,auto_adjust=True, progress=False,group_by="column",)
 
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
@@ -141,7 +130,7 @@ def main():
 
     raw_data: dict[str, pd.DataFrame] = {}
     for ticker in all_tickers:
-        df = fetch_ticker(ticker, START_DATE, END_DATE)
+        df = fetch_ticker(ticker, start_date, end_date)
         if not df.empty:
             raw_data[ticker] = df
 
