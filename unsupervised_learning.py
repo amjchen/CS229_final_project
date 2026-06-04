@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.stats import mode as scipy_mode
 from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
 
 from config import DataConfig
 from data_munging import features, prices, derive_features, remove_outliers, standardize_data
@@ -14,6 +15,7 @@ def elbow_plot(X: np.ndarray, save_path: str = "market_data/elbow_plot.png"):
     #Elbow plot development
     k_range = range(cfg.kmeans_k_range[0], cfg.kmeans_k_range[1])
     inertias = []
+    silhouette_scores = []
 
     print("Running elbow search...")
     for k in k_range:
@@ -21,6 +23,10 @@ def elbow_plot(X: np.ndarray, save_path: str = "market_data/elbow_plot.png"):
         km.fit(X)
         inertias.append(km.inertia_)
         print(f"  K={k:2d}  inertia={km.inertia_:,.0f}")
+        labels = km.labels_
+        s_score = silhouette_score(X, labels)
+        silhouette_scores.append(s_score)
+        print(f"  K={k:2d}  silhouette score={s_score}")
 
     plt.figure()
     plt.plot(list(k_range), inertias, marker="o", linewidth=2)
