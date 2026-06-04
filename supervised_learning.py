@@ -393,10 +393,13 @@ def main():
                 preds = clf.predict(X_test_np)
                 pred_proba = clf.predict_proba(X_test_np)
                 print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
+
+
             results[f"fold_{i}"] = {"true" : y_test.to_numpy(dtype=np.int64), "pred" : preds, "pred_proba" : pred_proba}
+            
+
         y_true_all = [item for f in results.values() for item in f["true"]]
         y_pred_all = [item for f in results.values() for item in f["pred"]]
-        # y_pred_proba_all = [item for f in results.values() for item in f["pred_proba"]]
         y_pred_proba_all = np.vstack([f["pred_proba"] for f in results.values()])
         print(len(y_true_all), len(y_pred_all), y_pred_proba_all.shape)
         
@@ -527,85 +530,6 @@ def main():
         plt.savefig('my_plot.png', dpi=300, bbox_inches='tight')
 
 
-
-def plot_regime_timeline(y_true, y_pred, pred_proba, save_path=None):
-    #plot the time series representation for experimentation + conclusion
-
-    N = len(y_true)
-    bull_color = "#2ca02c"      
-    rec_color = "#ffbf00"       
-    crisis_color = "#d62728"    
-
-    regime_colors = np.array([
-        plt.matplotlib.colors.to_rgb(bull_color),
-        plt.matplotlib.colors.to_rgb(rec_color),
-        plt.matplotlib.colors.to_rgb(crisis_color),
-    ])
-
-    true_strip = regime_colors[y_true]
-    pred_strip = regime_colors[y_pred]
-
-    bull_cmap = LinearSegmentedColormap.from_list("bull_prob", ["white", bull_color])
-
-    rec_cmap = LinearSegmentedColormap.from_list("rec_prob",["white", rec_color])
-    crisis_cmap = LinearSegmentedColormap.from_list("crisis_prob",["white", crisis_color])
-
-    fig, axes = plt.subplots(5, 1, figsize=(18, 5), sharex=True, gridspec_kw={"hspace": 0.15})
-
-    axes[0].imshow(
-        true_strip[np.newaxis, :, :],
-        aspect="auto"
-    )
-    axes[0].set_ylabel("True")
-
-    axes[1].imshow(
-        pred_strip[np.newaxis, :, :],
-        aspect="auto"
-    )
-    axes[1].set_ylabel("Pred")
-
-    axes[2].imshow(
-        pred_proba[:, 0][np.newaxis, :],
-        aspect="auto",
-        cmap=bull_cmap,
-        vmin=0,
-        vmax=1
-    )
-    axes[2].set_ylabel("0")
-
-    axes[3].imshow(
-        pred_proba[:, 1][np.newaxis, :],
-        aspect="auto",
-        cmap=rec_cmap,
-        vmin=0,
-        vmax=1
-    )
-    axes[3].set_ylabel("1")
-
-    axes[4].imshow(
-        pred_proba[:, 2][np.newaxis, :],
-        aspect="auto",
-        cmap=crisis_cmap,
-        vmin=0,
-        vmax=1
-    )
-    axes[4].set_ylabel("2")
-
-    for ax in axes:
-        ax.set_yticks([])
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.spines["left"].set_visible(False)
-
-    axes[-1].set_xlabel("Time")
-
-    plt.suptitle("Regime Predictions and Class Probabilities")
-
-    if save_path is not None:
-        plt.savefig(save_path, dpi=300, bbox_inches="tight")
-
-    plt.show()
-
 class SoftmaxRegression:
     def __init__(self, current_regime, max_iter=1000000, eps=1e-6,
                  theta_0=None, verbose=True, k=None):
@@ -665,15 +589,13 @@ class SoftmaxRegression:
             for k in range(n):
                 current = self.current_regime[k]
                 future = y[k]  
-                # diff_today_yesterday[k-h] = cfg_sup.margin + prob[k, current] - prob[k, future]
                 diff_today_yesterday[k] = cfg_sup.margin + prob[k, current] - prob[k, future]
             penalty = cfg_sup.lam * (transition_indicator * np.log(1 + np.exp(diff_today_yesterday))).sum()
         elif cfg_sup.penalty_type == "distance":
-            # inside = np.zeros(n-h)
             inside = np.zeros(n)
-            for i in range(n): #-h):
+            for i in range(n):
                 for k in range(cfg.kmeans_k):
-                    inside[i] += ((y[i] - k) ** 2) * prob[i, k] #((y[i+h] - k) ** 2) * prob[i+h, k]
+                    inside[i] += ((y[i] - k) ** 2) * prob[i, k] 
             penalty = cfg_sup.lam *(transition_indicator * inside).sum()
         else:
             penalty = 0
@@ -692,16 +614,12 @@ class SoftmaxRegression:
         dZ = prob - one_hot
         dTheta = X.T @ dZ
 
-        # transition_indicator = (y[h:] != y[:-h]).astype(float)
         transition_indicator = (current_regime != y).astype(float)
         if cfg_sup.penalty_type == "ce_standard":
             dZ_trans = np.zeros((n, self.k))
             dZ_trans = transition_indicator[:, None] * (prob - one_hot)
             penalty_grad = cfg_sup.lam * X.T @ dZ_trans
-        # elif cfg_sup.penalty_type == "ce_pairwise":
-        #     term1 = X[h:].T @ (transition_indicator[:, None] * cfg_sup.lam * (prob[h:] - one_hot[h:]))
-        #     term2 = X[:-h].T @ (transition_indicator[:, None] * cfg_sup.lam * (prob[:-h] - one_hot[:-h]))
-        #     penalty_grad = term1 + term2
+
         elif cfg_sup.penalty_type == "margin_bar":
             penalty_dZ = np.zeros_like(prob)
 
@@ -727,10 +645,10 @@ class SoftmaxRegression:
 
             penalty_grad = X.T @ penalty_dZ
         elif cfg_sup.penalty_type == "distance":
-            inside = np.zeros(n)# np.zeros(n-h)
-            for i in range(n): #(n-h):
+            inside = np.zeros(n)
+            for i in range(n): 
                 for k in range(cfg.kmeans_k):
-                    inside[i] += ((y[i] - k) ** 2) * prob[i, k]# ((y[i+h] - k) ** 2) * prob[i+h, k]
+                    inside[i] += ((y[i] - k) ** 2) * prob[i, k]
 
             penalty_grad = np.zeros((X.shape[1], self.k))
             one_hot_y = self.one_hot(y)
@@ -738,17 +656,16 @@ class SoftmaxRegression:
             for k in range(cfg.kmeans_k):
                 c[k] = k
 
-            for i in range(n): # - h):
+            for i in range(n):
                 if transition_indicator[i]:
                     for k in range(self.k):
-                        ctyi = np.dot(c, one_hot_y[i]) #+ h])
-                        weight = cfg_sup.lam * prob[i, k] *((ctyi - c[k]) ** 2 - inside[i])  #+ h, k] *((ctyi - c[k]) ** 2 - inside[i])
-                        penalty_grad[:, k] += weight * X[i] #+h]
+                        ctyi = np.dot(c, one_hot_y[i])
+                        weight = cfg_sup.lam * prob[i, k] *((ctyi - c[k]) ** 2 - inside[i])  
+                        penalty_grad[:, k] += weight * X[i]
             
         else:
             penalty_grad = 0
 
-        # reg_grad = 2 * cfg_sup.l2reg_stren * self.theta
         reg_grad = np.zeros_like(self.theta)
         reg_grad[1:] = 2 * cfg_sup.l2reg_stren * self.theta[1:]
         return dTheta + penalty_grad + reg_grad
@@ -844,24 +761,19 @@ class Neural_Networks(nn.Module):
         log_loss = torch.log(ground_lab + 1e-12)
         loss = -log_loss.sum()
 
-        # transition_indicator = (y[h:] != y[:-h]).float()
-        # print(self.current_regime.shape, y.shape)
         transition_indicator = (self.current_regime != y).float()
         
         if self.cfg_sup.penalty_type == "ce_standard":
             penalty = -self.cfg_sup.lam * (transition_indicator * log_loss).sum()
-        # elif self.cfg_sup.penalty_type == "ce_pairwise":
-        #     penalty = -self.cfg_sup.lam * (transition_indicator * (log_loss[h:] + log_loss[:-h])).sum()
+
         elif self.cfg_sup.penalty_type == "margin_bar":
             diff_today_yesterday = []
 
-            for k in range(n): #(h, n):
-                # yest_prb = prob[k, y[k-h]]
-                # today_prb = prob[k, y[k]]
+            for k in range(n):
                 current_prb = prob[k, self.current_regime[k]]
                 future_prb = prob[k, y[k]]
 
-                diff = self.cfg_sup.margin + current_prb - future_prb # yest_prb - today_prb
+                diff = self.cfg_sup.margin + current_prb - future_prb 
                 diff_today_yesterday.append(diff)
 
             stacked_diff = torch.stack(diff_today_yesterday)
@@ -872,7 +784,7 @@ class Neural_Networks(nn.Module):
             for i in range(n): # -h):
                 temp = 0.0
                 for k in range(self.k):
-                    temp += (y[i] - k) ** 2 * prob[i,k]  # + h] - k) ** 2 * prob[i+h,k]
+                    temp += (y[i] - k) ** 2 * prob[i,k] 
                 
                 inside.append(temp)
             
@@ -984,8 +896,6 @@ class convolutionNN(nn.Module):
         log_loss = torch.log(ground_lab + 1e-12)
         loss = -log_loss.sum()
 
-        # transition_indicator = (y[h:] != y[:-h]).float()
-        # print(self.current_regime.shape, y.shape)
         transition_indicator = (self.current_regime != y).float()
         
         if self.cfg_sup.penalty_type == "ce_standard":
@@ -993,13 +903,12 @@ class convolutionNN(nn.Module):
         elif self.cfg_sup.penalty_type == "margin_bar":
             diff_today_yesterday = []
 
-            for k in range(n): #(h, n):
-                # yest_prb = prob[k, y[k-h]]
-                # today_prb = prob[k, y[k]]
+            for k in range(n):
+
                 current_prb = prob[k, self.current_regime[k]]
                 future_prb = prob[k, y[k]]
 
-                diff = self.cfg_sup.margin + current_prb - future_prb # yest_prb - today_prb
+                diff = self.cfg_sup.margin + current_prb - future_prb 
                 diff_today_yesterday.append(diff)
 
             stacked_diff = torch.stack(diff_today_yesterday)
@@ -1010,7 +919,7 @@ class convolutionNN(nn.Module):
             for i in range(n): # -h):
                 temp = 0.0
                 for k in range(self.k):
-                    temp += (y[i] - k) ** 2 * prob[i,k]  # + h] - k) ** 2 * prob[i+h,k]
+                    temp += (y[i] - k) ** 2 * prob[i,k] 
                 
                 inside.append(temp)
             
@@ -1076,6 +985,85 @@ class convolutionNN(nn.Module):
     
         return y_numpy
 
+
+
+def plot_regime_timeline(y_true, y_pred, pred_proba, save_path=None):
+    #plot the time series representation for experimentation + conclusion
+
+    N = len(y_true)
+    bull_color = "#2ca02c"      
+    rec_color = "#ffbf00"       
+    crisis_color = "#d62728"    
+
+    regime_colors = np.array([
+        plt.matplotlib.colors.to_rgb(bull_color),
+        plt.matplotlib.colors.to_rgb(rec_color),
+        plt.matplotlib.colors.to_rgb(crisis_color),
+    ])
+
+    true_strip = regime_colors[y_true]
+    pred_strip = regime_colors[y_pred]
+
+    bull_cmap = LinearSegmentedColormap.from_list("bull_prob", ["white", bull_color])
+
+    rec_cmap = LinearSegmentedColormap.from_list("rec_prob",["white", rec_color])
+    crisis_cmap = LinearSegmentedColormap.from_list("crisis_prob",["white", crisis_color])
+
+    fig, axes = plt.subplots(5, 1, figsize=(18, 5), sharex=True, gridspec_kw={"hspace": 0.15})
+
+    axes[0].imshow(
+        true_strip[np.newaxis, :, :],
+        aspect="auto"
+    )
+    axes[0].set_ylabel("True")
+
+    axes[1].imshow(
+        pred_strip[np.newaxis, :, :],
+        aspect="auto"
+    )
+    axes[1].set_ylabel("Pred")
+
+    axes[2].imshow(
+        pred_proba[:, 0][np.newaxis, :],
+        aspect="auto",
+        cmap=bull_cmap,
+        vmin=0,
+        vmax=1
+    )
+    axes[2].set_ylabel("0")
+
+    axes[3].imshow(
+        pred_proba[:, 1][np.newaxis, :],
+        aspect="auto",
+        cmap=rec_cmap,
+        vmin=0,
+        vmax=1
+    )
+    axes[3].set_ylabel("1")
+
+    axes[4].imshow(
+        pred_proba[:, 2][np.newaxis, :],
+        aspect="auto",
+        cmap=crisis_cmap,
+        vmin=0,
+        vmax=1
+    )
+    axes[4].set_ylabel("2")
+
+    for ax in axes:
+        ax.set_yticks([])
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_visible(False)
+
+    axes[-1].set_xlabel("Time")
+
+    plt.suptitle("Regime Predictions and Class Probabilities")
+
+    if save_path is not None:
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+
+    plt.show()
 
 
 

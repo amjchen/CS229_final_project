@@ -17,16 +17,15 @@ def elbow_plot(X: np.ndarray, save_path: str = "market_data/elbow_plot.png"):
     inertias = []
     silhouette_scores = []
 
-    print("Running elbow search...")
     for k in k_range:
         km = KMeans(n_clusters=k, random_state=42, n_init=10)
         km.fit(X)
         inertias.append(km.inertia_)
-        print(f"K={k:2d}inertia={km.inertia_:,.0f}")
+        print(f"K={k:2d}inertia = {km.inertia_:,.0f}")
         labels = km.labels_
         s_score = silhouette_score(X, labels)
         silhouette_scores.append(s_score)
-        print(f"K={k:2d} silhouette score={s_score}")
+        print(f"K={k:2d} silhouette score= {s_score}")
 
     plt.figure()
     plt.plot(list(k_range), inertias, marker = "o", linewidth = 2)

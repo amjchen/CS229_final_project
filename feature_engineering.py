@@ -83,6 +83,8 @@ def build_macro_features(daily_index: pd.DatetimeIndex) -> pd.DataFrame:
     
     for s in [cpi_yoy, cpi_mom, cpi_yoy_lag3]:
         s.index = cpi.index
+
+        
     macro['cpi'] = cpi.reindex(daily_index, method='ffill')
     macro['cpi_yoy'] = cpi_yoy.reindex(daily_index, method='ffill')
     macro['cpi_mom'] = cpi_mom.reindex(daily_index, method='ffill')
@@ -133,12 +135,14 @@ def main():
         df = fetch_ticker(ticker, start_date, end_date)
         if not df.empty:
             raw_data[ticker] = df
+    
+    temp = {}
+    for tick, df in raw_data.items():
+        if "close" in df.columns:
+            temp[tick] = df["close"]
+    
+    close_prices = pd.DataFrame(temp)
 
-    close_prices = pd.DataFrame({
-        ticker: df["close"]
-        for ticker, df in raw_data.items()
-        if "close" in df.columns
-    })
     close_prices.index = pd.to_datetime(close_prices.index)
     close_prices.sort_index(inplace = True)
 
