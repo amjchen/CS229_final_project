@@ -33,9 +33,7 @@ macro_misc_ticks = ["^TNX","^TYX","GC=F", "CL=F", "DX-Y.NYB", "HG=F","HYG","^IRX
 out = "market_data"
 real_windows = [21, 63, 126] 
 
-def fetch_ticker(ticker: str, start: str, end: str):
-    print(f"Fetching {ticker} ...")
-
+def fetch_ticker(ticker, start, end):
     df = yf.download(ticker, start=start,  end=end,auto_adjust=True, progress=False,group_by="column",)
 
     if isinstance(df.columns, pd.MultiIndex):
@@ -47,15 +45,15 @@ def fetch_ticker(ticker: str, start: str, end: str):
     return df
 
 
-def compute_log_returns(prices: pd.Series) -> pd.Series:
+def compute_log_returns(prices):
     return np.log(prices / prices.shift(1))
 
 
-def compute_realized_volatility(log_returns: pd.Series, window: int) -> pd.Series:
+def compute_realized_volatility(log_returns, window):
     return log_returns.rolling(window).std() * np.sqrt(252)
 
 
-def build_macro_features(daily_index: pd.DatetimeIndex) -> pd.DataFrame:
+def build_macro_features(daily_index):
     macro = pd.DataFrame(index=daily_index)
 
     unemp = data['unemp'].copy()
@@ -84,7 +82,7 @@ def build_macro_features(daily_index: pd.DatetimeIndex) -> pd.DataFrame:
     for s in [cpi_yoy, cpi_mom, cpi_yoy_lag3]:
         s.index = cpi.index
 
-        
+
     macro['cpi'] = cpi.reindex(daily_index, method='ffill')
     macro['cpi_yoy'] = cpi_yoy.reindex(daily_index, method='ffill')
     macro['cpi_mom'] = cpi_mom.reindex(daily_index, method='ffill')
@@ -97,6 +95,8 @@ def build_macro_features(daily_index: pd.DatetimeIndex) -> pd.DataFrame:
     corp_spread = baa - gs3
     corp_spread_diff1 = corp_spread.diff(1)  
     corp_spread_diff3 = corp_spread.diff(3)  
+
+    
     macro['corp_3yr_spread'] = corp_spread.reindex(daily_index, method='ffill')
     macro['corp_3yr_spread_diff1'] = corp_spread_diff1.reindex(daily_index, method='ffill')
     macro['corp_3yr_spread_diff3'] = corp_spread_diff3.reindex(daily_index, method='ffill')
@@ -104,7 +104,7 @@ def build_macro_features(daily_index: pd.DatetimeIndex) -> pd.DataFrame:
     return macro.ffill()
 
 
-def build_feature_table(close_prices: pd.DataFrame) -> pd.DataFrame:
+def build_feature_table(close_prices):
     level_tickers = {"^TNX", "^TYX", "^IRX", "^VIX"}
 
     features = pd.DataFrame(index=close_prices.index)

@@ -11,7 +11,7 @@ from data_munging import features, prices, derive_features, remove_outliers, sta
 cfg = DataConfig()
 
 
-def elbow_plot(X: np.ndarray, save_path: str = "market_data/elbow_plot.png"):
+def elbow_plot(X, save_path: str = "market_data/elbow_plot.png"):
     #Elbow plot development
     k_range = range(cfg.kmeans_k_range[0], cfg.kmeans_k_range[1])
     inertias = []
@@ -40,7 +40,7 @@ def elbow_plot(X: np.ndarray, save_path: str = "market_data/elbow_plot.png"):
     plt.show()
 
 
-def smooth_labels(labels: np.ndarray, index: pd.DatetimeIndex, window: int):
+def smooth_labels(labels, index, window):
     #Rolling mode over `window` days to kill spurious single-day regime flips 
     s = pd.Series(labels, index = index, dtype=float)
 
@@ -49,11 +49,10 @@ def smooth_labels(labels: np.ndarray, index: pd.DatetimeIndex, window: int):
     return smoothed.astype(int).values
 
 
-def canonical_order(labels: np.ndarray, km: KMeans, label_cols: list[str]) -> np.ndarray:
-    #Remap cluster IDs so label 0 = tightest credit spread → label K-1 = widest 
+def canonical_order(labels, km, label_cols):
     spread_idx = label_cols.index("corp_3yr_spread")
     centroid_spreads = km.cluster_centers_[:, spread_idx]
-    rank_order = np.argsort(centroid_spreads)          # ascending spread = ascending risk
+    rank_order = np.argsort(centroid_spreads)
     remap = {int(old): int(new) for new, old in enumerate(rank_order)}
     return np.array([remap[l] for l in labels])
 
