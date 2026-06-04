@@ -10,6 +10,7 @@ class DataConfig:
     output_path         : str = "market_data/model_features.cvs"
     labeled_output_path : str = "market_data/features_with_labels.csv"
 
+ 
     tickers: List[str] = None
 
     test_days: int = 200
