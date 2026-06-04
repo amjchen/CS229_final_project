@@ -31,28 +31,8 @@ def build_supervised_regime_dataset(
     cfg_sup,
     target_col: str = "regime",
 ):
-    """
-    Convert labeled regime dataframe into a supervised learning dataset
-    for multinomial logistic regression / softmax regression.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Output of build_labels()
-    target_col : str
-        Target column to forecast
-    add_regime_lags : bool
-        Whether to include lagged regime states as predictors
-
-    Returns
-    -------
-    X : pd.DataFrame
-        Feature matrix
-    y : pd.Series
-        Future regime labels
-    supervised_df : pd.DataFrame
-        Full aligned dataframe
-    """
+    #Given the different type of method we are interested in doing alongside the custom loss
+    #We formulate the data (in window form or just standard splits) to be passed down later
     horizon = cfg_sup.horizon
     df = df.copy()
     df = df.dropna()
@@ -111,26 +91,19 @@ def build_supervised_regime_dataset(
 
 
     else: 
-        # yesterday's regime
         df["regime_lag_1"] = df[target_col].shift(1)
-        # 1 trading week ago
         df["regime_lag_5"] = df[target_col].shift(5)
 
-        # Predict future regime using current information
         if cfg_sup.evaluation_metric == 2:
             df["target"] = df[target_col].shift(-horizon)
         else:
             df["target"] = df[target_col]
 
-        # Drop Nans created from shifting
         supervised_df = df.dropna().copy()
 
-        # For design matrix X
-        # remove current regime label + future target label
         drop_cols = [target_col, "target"]
         X = supervised_df.drop(columns=drop_cols)
 
-        # Target
         y = supervised_df["target"].astype(int)
         current_regime = supervised_df[target_col]
 
@@ -187,7 +160,8 @@ def print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup):
     else:
         print("No metric 1 defined in this test window")
 
-    # else:
+
+
     if cfg_sup.evaluation_metric == 2:
         current_regime_train = supervised_df.loc[y_train.index, "regime"]
         future_regime_train = y_train
@@ -238,6 +212,10 @@ def print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup):
     })
 
 def CV_for_lambda(current_regime, X, y, model_type):
+    #Cross validation using walk foward method for the method and loss
+    #A plot of the best lambda is reported
+
+
     n = len(X)
     cutoff = n // 2
     if model_type == "cnn":
@@ -278,9 +256,6 @@ def CV_for_lambda(current_regime, X, y, model_type):
             if model_type == "softmax":
                 clf = SoftmaxRegression(current_regime=current_regime_fold, max_iter = cfg_sup.max_iter, eps = 1e-6, k = cfg.kmeans_k)
                 clf.fit(X_train_np, y_train_np, learning_rate = cfg_sup.learning_rate, batch_size = cfg_sup.batch_size)
-            elif model_type == "gda":
-                clf = GDA_SGD(k = cfg.kmeans_k)
-                clf.fit(X_train_np, y_train_np)
             elif model_type == "neuralnet":
                 x_shape = X_train_np.shape[1]
                 clf = Neural_Networks(torch.as_tensor(current_regime_fold.to_numpy().copy()), x_shape, cfg.kmeans_k, cfg_sup)
@@ -335,7 +310,6 @@ def CV_for_lambda(current_regime, X, y, model_type):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--softmax", action = "store_true")
-    parser.add_argument("--gda", action="store_true")
     parser.add_argument("--neuralnet", action = "store_true")
     parser.add_argument("--tunelambda", action = "store_true")
     parser.add_argument("--cnn", action = "store_true")
@@ -392,14 +366,6 @@ def main():
                 preds_train = clf.predict(X_train_np)
                 preds = clf.predict(X_test_np)
                 pred_proba = clf.predict_proba(X_test_np)
-                print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
-
-            if args.gda:
-                print("GAUSSIAN DISCRIMINANT ANALYSIS")
-                clf = GDA_SGD(k=cfg.kmeans_k)
-                clf.fit(X_train_np, y_train_np)
-                preds_train = clf.predict(X_train_np)
-                preds = clf.predict(X_test_np)
                 print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
 
             if args.neuralnet:
@@ -478,13 +444,11 @@ def main():
         if c2 > 0:
             print(f"Avg test accuracy  : {(test_sum / c2):.4f}")
         
-        # if cfg_sup.evaluation_metric == 1: 
         if c3 > 0: 
             print(f"Avg train M1       : {(train_m1_sum / c3):.4f}")
         if c4 > 0:
             print(f"Avg test M1        : {(test_m1_sum / c4):.4f}")
 
-        # else: 
             if c5 > 0:
                 print(f"Avg train M2       : {(train_m2_sum / c5):.4f}")
             if c6 > 0:
@@ -533,14 +497,6 @@ def main():
             preds = clf.predict(X_test_np)
             print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
 
-        if args.gda:
-            print("GAUSSIAN DISCRIMINANT ANALYSIS")
-            clf = GDA_SGD(k=cfg.kmeans_k)
-            clf.fit(X_train_np, y_train_np)
-            preds_train = clf.predict(X_train_np)
-            preds = clf.predict(X_test_np)
-            print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
-
         if args.neuralnet:
             print("NEURAL NETWORK")
             dim_in = X_train_np.shape[1]
@@ -569,32 +525,18 @@ def main():
             print_results(preds_train, supervised_df, y_train, preds, y_test, cfg_sup)
         cm = confusion_matrix(y_test, preds, labels = [0, 1, 2])
         disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['0', '1', '2'])
-        # plt.show()
         disp.plot()
         plt.savefig('my_plot.png', dpi=300, bbox_inches='tight')
 
 
 
 def plot_regime_timeline(y_true, y_pred, pred_proba, save_path=None):
-    """
-    Parameters
-    ----------
-    y_true : (N,)
-    y_pred : (N,)
-    pred_proba : (N,3)
-
-    Creates 5 stacked number-line style plots:
-        True regime
-        Predicted regime
-        P(Bull)
-        P(Recovery)
-        P(Crisis)
-    """
+    #plot the time series representation for experimentation + conclusion
 
     N = len(y_true)
-    bull_color = "#2ca02c"      # green
-    rec_color = "#ffbf00"       # gold
-    crisis_color = "#d62728"    # red
+    bull_color = "#2ca02c"      
+    rec_color = "#ffbf00"       
+    crisis_color = "#d62728"    
 
     regime_colors = np.array([
         plt.matplotlib.colors.to_rgb(bull_color),
@@ -605,36 +547,25 @@ def plot_regime_timeline(y_true, y_pred, pred_proba, save_path=None):
     true_strip = regime_colors[y_true]
     pred_strip = regime_colors[y_pred]
 
-    bull_cmap = LinearSegmentedColormap.from_list(
-        "bull_prob",
-        ["white", bull_color]
-    )
-    rec_cmap = LinearSegmentedColormap.from_list(
-        "rec_prob",
-        ["white", rec_color]
-    )
-    crisis_cmap = LinearSegmentedColormap.from_list(
-        "crisis_prob",
-        ["white", crisis_color]
-    )
+    bull_cmap = LinearSegmentedColormap.from_list("bull_prob", ["white", bull_color])
+
+    rec_cmap = LinearSegmentedColormap.from_list("rec_prob",["white", rec_color])
+    crisis_cmap = LinearSegmentedColormap.from_list("crisis_prob",["white", crisis_color])
 
     fig, axes = plt.subplots(5, 1, figsize=(18, 5), sharex=True, gridspec_kw={"hspace": 0.15})
 
-    # "true" regimes
     axes[0].imshow(
         true_strip[np.newaxis, :, :],
         aspect="auto"
     )
     axes[0].set_ylabel("True")
 
-    # predicted labels
     axes[1].imshow(
         pred_strip[np.newaxis, :, :],
         aspect="auto"
     )
     axes[1].set_ylabel("Pred")
 
-    # bull proba
     axes[2].imshow(
         pred_proba[:, 0][np.newaxis, :],
         aspect="auto",
@@ -644,7 +575,6 @@ def plot_regime_timeline(y_true, y_pred, pred_proba, save_path=None):
     )
     axes[2].set_ylabel("0")
 
-    # recovery proba
     axes[3].imshow(
         pred_proba[:, 1][np.newaxis, :],
         aspect="auto",
@@ -654,7 +584,6 @@ def plot_regime_timeline(y_true, y_pred, pred_proba, save_path=None):
     )
     axes[3].set_ylabel("1")
 
-    # crisis proba
     axes[4].imshow(
         pred_proba[:, 2][np.newaxis, :],
         aspect="auto",
@@ -680,22 +609,9 @@ def plot_regime_timeline(y_true, y_pred, pred_proba, save_path=None):
     plt.show()
 
 class SoftmaxRegression:
-    """Softmax regression with SGD as the solver.
-
-    Example usage:
-        > clf = LogisticRegression()
-        > clf.fit(x_train, y_train)
-        > clf.predict(x_eval)
-    """
     def __init__(self, current_regime, max_iter=1000000, eps=1e-6,
                  theta_0=None, verbose=True, k=None):
-        """
-        Args:
-            max_iter: Maximum number of iterations for the solver.
-            eps: Threshold for determining convergence.
-            theta_0: Initial guess for theta. If None, use the zero vector.
-            verbose: Print loss values during training.
-        """
+
         self.theta = theta_0
         self.max_iter = max_iter
         self.eps = eps
@@ -705,13 +621,7 @@ class SoftmaxRegression:
         self.current_regime = current_regime
 
     def fit(self, x, y, learning_rate, batch_size):
-        """Run Newton's Method to minimize J(theta) for logistic regression.
-
-        Args:
-            x: Shape (n_examples, dim).
-            y: Shape (n_examples,).
-        """
-
+        #Fitting the softmax using inputs
         x_inter = self.add_intercept(x.copy())
         d = x_inter.shape[1]
         self.current_regime = np.asarray(self.current_regime)
@@ -722,7 +632,6 @@ class SoftmaxRegression:
         for epoch in range(self.max_iter):
             self.gradient_descent_epoch(x_inter, y, learning_rate, batch_size)
 
-            # Track loss
             loss = self.ce_loss(x_inter, y)
             self.loss_history.append(loss)
 
@@ -734,14 +643,6 @@ class SoftmaxRegression:
 
     @staticmethod
     def add_intercept(x):
-        """Add intercept to matrix x.
-
-        Args:
-            x: 2D NumPy array.
-
-        Returns:
-            New matrix same as x with 1's in the 0th column.
-        """
         new_x = np.zeros((x.shape[0], x.shape[1] + 1), dtype=x.dtype)
         new_x[:, 0] = 1
         new_x[:, 1:] = x
@@ -749,6 +650,7 @@ class SoftmaxRegression:
         return new_x
 
     def ce_loss(self, X, y):
+        #All custom losses are defined here
         n = X.shape[0]
         logits = X @ self.theta
         prob = self.softmax(logits)
@@ -756,20 +658,13 @@ class SoftmaxRegression:
         log_loss = np.log(prob[np.arange(n), y] + 1e-12)
         loss = -log_loss.sum()
 
-        # # transition_indicator = (y[h:] != y[:-h]).astype(float)
-        transition_indicator = (self.current_regime != y).astype(float)# .to_numpy()
+        transition_indicator = (self.current_regime != y).astype(float)
         if cfg_sup.penalty_type == "ce_standard":
             penalty = -cfg_sup.lam * (transition_indicator * log_loss).sum()
-        # elif cfg_sup.penalty_type == "ce_pairwise":
-        #     pair = log_loss[:-h]
-        #     penalty = -cfg_sup.lam * (transition_indicator * (log_loss[h:] + log_loss[:-h])).sum()
+
         elif cfg_sup.penalty_type == "margin_bar":
-            # diff_today_yesterday = np.zeros(n-h)
             diff_today_yesterday = np.zeros(n)
-            # for k in range(h, n):
             for k in range(n):
-                # yesterday = y[k-h]
-                # today = y[k]
                 current = self.current_regime[k]
                 future = y[k]  
                 # diff_today_yesterday[k-h] = cfg_sup.margin + prob[k, current] - prob[k, future]
@@ -785,7 +680,6 @@ class SoftmaxRegression:
         else:
             penalty = 0
 
-        # reg = cfg_sup.l2reg_stren * np.linalg.norm(self.theta, "fro")**2
         reg = cfg_sup.l2reg_stren * np.sum(self.theta[1:] ** 2)
 
         return loss + penalty + reg
@@ -862,23 +756,7 @@ class SoftmaxRegression:
         return dTheta + penalty_grad + reg_grad
 
     def gradient_descent_epoch(self, X_shuffled, y_shuffled, learning_rate, batch_size):
-        """
-        Perform one epoch of gradient descent on the given training data using the provided learning rate.
-
-        This code should update the parameters stored in params.
-        It should not return anything
-
-        Args:
-            train_data: A numpy array containing the training data
-            one_hot_train_labels: A numpy array containing the one-hot embeddings of the training labels e_y.
-            learning_rate: The learning rate
-            batch_size: The amount of items to process in each batch
-            params: A dict of parameter names to parameter values that should be updated.
-            forward_prop_func: A function that follows the forward_prop API
-            backward_prop_func: A function that follows the backwards_prop API
-
-        Returns: This function returns nothing.
-        """
+        #Gradient Decsent one pass over the epoch
 
         n_samples = X_shuffled.shape[0]
 
@@ -897,33 +775,13 @@ class SoftmaxRegression:
         return
 
     def one_hot(self, y):
-        """
-        Convert integer labels into one-hot vectors.
-        """
-
         one_hot = np.zeros((len(y), self.k))
         one_hot[np.arange(len(y)), y] = 1
 
         return one_hot
 
     def softmax(self, z):
-        """
-        Compute softmax function for a batch of input values.
-        The first dimension of the input corresponds to the batch size. The second dimension
-        corresponds to every class in the output. When implementing softmax, you should be careful
-        to only sum over the second dimension.
-
-        Important Note: You must be careful to avoid overflow for this function. Functions
-        like softmax have a tendency to overflow when very large numbers like e^10000 are computed.
-        You will know that your function is overflow resistent when it can handle input like:
-        np.array([[10000, 10010, 10]]) without issues.
-
-        Args:
-            x: A 2d numpy float array of shape batch_size x number_of_classes
-
-        Returns:
-            A 2d numpy float array containing the softmax results of shape batch_size x number_of_classes
-        """
+        #Softmax function to transform logits into probabilites
         shift_z = z - np.max(z, axis=1, keepdims=True)
         exp_shift_z = np.exp(shift_z)
         return exp_shift_z / np.sum(exp_shift_z, axis=1, keepdims=True)
@@ -937,102 +795,6 @@ class SoftmaxRegression:
         x_inter = self.add_intercept(x.copy())
         logits = x_inter @ self.theta
         return self.softmax(logits)
-
-
-class GDA_MLE:          # i think this has some stability issues rn, but maybe we wont even use this 
-    """Gaussian Discriminant Analysis
-    y ~ Multinomial(phi)
-    x | y = j ~ N(mu_j, Sigma_j) NOTE we allow different class to have different covariance 
-
-    Example usage:
-        > clf = GDA()
-        > clf.fit(x_train, y_train)
-        > clf.predict(x_eval)
-    """
-    def __init__(self, verbose=True):
-        """
-        Args:
-            max_iter: Maximum number of iterations for the solver.
-            eps: Threshold for determining convergence.
-            verbose: Print fitted parameters after training.
-        """
-        self.sigma = None
-        self.mu = None
-        self.phi = None
-        self.k = cfg.kmeans_k
-        
-        # self.max_iter = max_iter
-        # self.eps = eps
-        # self.verbose = verbose
-
-    def fit(self, x, y):
-        """Fit a GDA model to training set given by x and y by updating
-        self.theta.
-
-        Args:
-            x: Shape (n_examples, dim).
-            y: Shape (n_examples,).
-        """
-        # *** START CODE HERE ***
-        n = x.shape[0]
-        d = x.shape[1]
-
-        self.phi = np.zeros(self.k)
-        self.mu = np.zeros((self.k, d))
-        self.sigma = np.zeros((self.k, d, d))
-        for j in range(self.k):
-            x_j = x[y == j]
-            n_j = len(x_j)
-            
-            self.phi[j] = n_j / n
-            
-            self.mu[j] = np.mean(x_j, axis=0)
-            
-            diff = x_j - self.mu[j]
-            self.sigma[j] = (diff.T @ diff) / n_j
-
-        self.cov_inv = []
-        self.cov_det = []
-
-        for sigma in self.sigma:
-            self.cov_inv.append(np.linalg.inv(sigma))
-            self.cov_det.append(np.linalg.det(sigma))
-        # *** END CODE HERE ***
-
-    def predict(self, x):
-        """Make a prediction given new inputs x.
-
-        Args:
-            x: Shape (n_examples, dim).
-
-        Returns:
-            Outputs of shape (n_examples,).
-        """
-        # *** START CODE HERE ***
-        # Predict class that has maximum posterior P(y=j | x) = P(x|y=j)P(y=j) / P(x) 
-        # <==> class with max log P(x|y=j) + log P(y=j)
-        n = x.shape[0]
-        d = x.shape[1]
-
-        log_posteriors = np.zeros((n, self.k))
-
-        for j in range(self.k):
-            mu = self.mu[j]
-            sigma_inv = self.cov_inv[j]
-            sigma_det = self.cov_det[j]
-
-            diff = x - mu  # shape: (n, d)
-
-            exponent = -0.5 * np.sum((diff @ sigma_inv) * diff, axis=1)
-            log_coeff = -0.5 * (
-                d * np.log(2 * np.pi) + np.log(sigma_det)
-            )
-            log_likelihood = log_coeff + exponent
-
-            log_posteriors[:, j] = log_likelihood + np.log(self.phi[j])
-
-        return np.argmax(log_posteriors, axis=1)
-        # *** END CODE HERE ***
 
 
 class Neural_Networks(nn.Module):
@@ -1210,9 +972,8 @@ class convolutionNN(nn.Module):
         return score
     
     def loss_function(self, score, y): 
+        #Define loss for CNN
         n = score.shape[0]
-
-        #Changing logit scores to probabilites through softmax
         numerator = torch.exp(score)
         denominator = numerator.sum(dim = 1, keepdim= True)
         prob = numerator / denominator
@@ -1231,8 +992,6 @@ class convolutionNN(nn.Module):
         
         if self.cfg_sup.penalty_type == "ce_standard":
             penalty = -self.cfg_sup.lam * (transition_indicator * log_loss).sum()
-        # elif self.cfg_sup.penalty_type == "ce_pairwise":
-        #     penalty = -self.cfg_sup.lam * (transition_indicator * (log_loss[h:] + log_loss[:-h])).sum()
         elif self.cfg_sup.penalty_type == "margin_bar":
             diff_today_yesterday = []
 
@@ -1320,398 +1079,6 @@ class convolutionNN(nn.Module):
         return y_numpy
 
 
-
-# class GDA_SGD:
-#     """
-#     Gaussian Discriminant Analysis trained with mini-batch SGD
-#     on the negative log likelihood.
-
-#     Parameters optimized:
-#         mu_j              : class means
-#         L_j               : Cholesky factor
-#                              S_j = L_j L_j^T
-#         phi_j             : class priors
-
-#     We optimize wrt L_j instead of S_j directly so that
-#     precision matrices remain positive definite automatically.
-
-#     ============================================================
-#     GRADIENTS USED
-#     ============================================================
-#     Let:
-#         S_j = L_j L_j^T     (cholesky)
-#         diff_i = x_i - mu_j
-
-#     NLL for class j:
-#         L_j =
-#             - n_j log(phi_j)
-#             - 0.5 n_j log|S_j|
-#             + 0.5 sum diff_i^T S_j diff_i
-
-#     ------------------------------------------------------------
-#     Gradient wrt mu_j
-#     ------------------------------------------------------------
-#         dL/dmu_j = - sum S_j (x_i - mu_j)
-#     -----------------------------------------------------------
-#     Gradient wrt S_j
-#     ------------------------------------------------------------
-#         dL/dS_j = 0.5 * (
-#                 scatter - n_j S_j^{-1}
-#               )
-#         where scatter = sum diff_i diff_i^T
-
-#     ------------------------------------------------------------
-#     Gradient wrt L_j
-#     ------------------------------------------------------------
-#     Since S_j = L_j L_j^T chain rule gives:
-#         dL/dL_j = (dL/dS_j + dL/dS_j^T) L_j
-
-#     ------------------------------------------------------------
-#     Gradient wrt phi_j
-#     ------------------------------------------------------------
-#         dL/dphi_j
-#             = -n_j / phi_j + lambda
-
-class GDA_SGD:
-    """
-    Gaussian Discriminant Analysis trained with mini-batch SGD
-    on the negative log likelihood.
-    """
-
-    def __init__(self, k=3, max_iter=500, eps=1e-6,
-                 learning_rate=1e-3, batch_size=cfg_sup.batch_size, reg_stren=10, 
-                 verbose=True):
-
-        self.k = k
-        self.max_iter = max_iter
-        self.eps = eps
-        self.learning_rate = learning_rate
-        self.batch_size = batch_size
-        self.verbose = verbose
-        self.reg_stren = reg_stren
-
-        self.mu = None
-        self.L = None
-        self.alpha = None
-
-        self.loss_history = []
-
-    def softmax(self, z):
-        z = z - np.max(z)
-        exp_z = np.exp(z)
-        return exp_z / np.sum(exp_z)
-
-    @property
-    def phi(self):
-        return self.softmax(self.alpha)
-
-    def precision_matrix(self, j):
-        return self.L[j] @ self.L[j].T
-
-    def fit(self, x, y):
-        n, d = x.shape
-
-        if self.mu is None:
-            self.mu = np.random.randn(self.k, d)
-        if self.L is None:
-            self.L = np.array([np.eye(d) for _ in range(self.k)])
-        if self.alpha is None:
-            self.alpha = np.zeros(self.k)
-
-        for epoch in range(self.max_iter):
-            # perm = np.random.permutation(n)
-            x_shuffled = x #[perm]
-            y_shuffled = y #[perm]
-
-            self.gradient_descent_epoch(x_shuffled, y_shuffled)
-
-            loss = self.nll_loss(x, y)
-            self.loss_history.append(loss)
-
-            if self.verbose and epoch % 200 == 0:
-                print(f"Epoch {epoch:5d} | Loss: {loss:.6f}")
-
-            if epoch > 0 and abs(self.loss_history[-2] - self.loss_history[-1]) < self.eps:
-                break
-
-    def nll_loss(self, x, y):
-        n, d = x.shape
-        loss = 0.0
-        phi = self.phi
-
-        for j in range(self.k):
-            x_j = x[y == j]
-            n_j = len(x_j)
-
-            if n_j == 0:
-                continue
-
-            mu_j = self.mu[j]
-            S_j = self.precision_matrix(j)
-            phi_j = phi[j]
-
-            diff = x_j - mu_j
-
-            sign, logdetS = np.linalg.slogdet(S_j)
-            quad = np.sum((diff @ S_j) * diff)
-
-            class_loss = (
-                -n_j * np.log(phi_j + 1e-12)
-                -0.5 * n_j * logdetS
-                +0.5 * quad
-            )
-
-            loss += class_loss
-
-        # regularize precision matrix
-        raw_reg = 0
-        I = np.eye(d)
-        for k in range(self.k):
-            raw_reg += np.sum((self.precision_matrix(k) - I) ** 2) 
-        reg = self.reg_stren * raw_reg
-
-        if cfg_sup.penalty_type == "ce_standard":
-            logits = np.zeros((n, self.k))  # (n, k)
-
-            for k in range(self.k):
-                mu_k = self.mu[k]
-                S_k = self.precision_matrix(k)
-                diff = x - mu_k
-
-                sign, logdetS = np.linalg.slogdet(S_k)
-                quad = np.sum((diff @ S_k) * diff, axis=1)
-
-                logits[:, k] = (
-                    np.log(phi[k] + 1e-12)
-                    + 0.5 * logdetS
-                    - 0.5 * quad
-                )
-
-            # stable softmax
-            logits -= np.max(logits, axis=1, keepdims=True)
-            exp_logits = np.exp(logits)
-            probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
-
-            # log p(y_i | x_i)
-            log_probs = np.log(probs[np.arange(n), y] + 1e-12)
-
-            # transition indicator
-            transition_indicator = (y[h:] != y[:-h]).astype(float)
-
-            penalty = -cfg_sup.lam * np.sum(
-                transition_indicator * log_probs[h:]
-            )
-        if cfg_sup.penalty_type == "ce_pairwise":
-            logits = np.zeros((n, self.k))  # (n, k)
-
-            for k in range(self.k):
-                mu_k = self.mu[k]
-                S_k = self.precision_matrix(k)
-                diff = x - mu_k
-
-                sign, logdetS = np.linalg.slogdet(S_k)
-                quad = np.sum((diff @ S_k) * diff, axis=1)
-
-                logits[:, k] = (
-                    np.log(phi[k] + 1e-12)
-                    + 0.5 * logdetS
-                    - 0.5 * quad
-                )
-
-            # stable softmax
-            logits -= np.max(logits, axis=1, keepdims=True)
-            exp_logits = np.exp(logits)
-            probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
-
-            # log p(y_i | x_i)
-            log_probs = np.log(probs[np.arange(n), y] + 1e-12)
-
-            # transition indicator
-            transition_indicator = (y[h:] != y[:-h]).astype(float)
-
-            penalty = -cfg_sup.lam * np.sum(
-                transition_indicator * (log_probs[h:] + log_probs[:-h])
-            )
-        else:
-            penalty = 0.0
-
-        return (loss + penalty + reg) / n
-
-    def nll_grad(self, x_batch, y_batch):
-        """
-        Computes gradients for:
-
-            L_total = L_NLL + lambda_trans * L_trans_ce
-
-        where
-
-            L_trans_ce =
-            - sum_j 1[y_j != y_{j-1}] log p(y_j | x_j)
-
-        The NLL part is your original generative GDA objective.
-        The transition term is discriminative and uses GDA posteriors.
-        """
-
-        n_batch, d = x_batch.shape
-
-        grad_mu = np.zeros_like(self.mu)
-        grad_L = np.zeros_like(self.L)
-        grad_alpha = np.zeros_like(self.alpha)
-
-        phi = self.phi
-
-        # Gradients for NLL part only
-        for k in range(self.k):
-            x_k = x_batch[y_batch == k]
-            n_k = len(x_k)
-
-            if n_k == 0:
-                continue
-
-            mu_k = self.mu[k]
-            L_k = self.L[k]
-            S_k = self.precision_matrix(k)
-            phi_k = phi[k]
-            diff = x_k - mu_k
-
-            grad_mu[k] += -np.sum(diff @ S_k, axis=0)
-
-
-            # grad wrt S_k
-            scatter = diff.T @ diff
-            Sigma_k = np.linalg.inv(S_k + 1e-5 * np.eye(d))
-            grad_S = 0.5 * (scatter - n_k * Sigma_k)
-
-            # chain rule: S_k = L_k L_k^T
-            grad_L[k] += (grad_S + grad_S.T) @ L_k # 2.0 * grad_S @ L_k
-
-            grad_alpha[k] += n_batch * phi_k - n_k
-
-        # Transition CE loss
-        if cfg_sup.penalty_type == "ce_standard":
-            # compute posterior probabilities p(y=k | x)
-            logits = np.zeros((n_batch, self.k))
-            for k in range(self.k):
-                mu_k = self.mu[k]
-                S_k = self.precision_matrix(k)
-                diff = x_batch - mu_k
-                sign, logdetS = np.linalg.slogdet(S_k)
-                quad = np.sum((diff @ S_k) * diff, axis=1)
-
-                logits[:, k] = (
-                    np.log(phi[k] + 1e-12)
-                    + 0.5 * logdetS
-                    - 0.5 * quad
-                )
-            logits -= np.max(logits, axis=1, keepdims=True)
-            exp_logits = np.exp(logits)
-            probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
-
-            Y = np.eye(self.k)[y_batch]
-            G = probs - Y
-
-            transition_mask = np.zeros(n_batch)
-            transition_mask[h:] = (
-                y_batch[h:] != y_batch[:-h]
-            ).astype(float)
-
-            G *= cfg_sup.lam * transition_mask[:, None]
-
-            # alpha gradient
-            grad_alpha += np.sum(G, axis=0)
-
-            # mu and L gradients
-            for k in range(self.k):
-                S_k = self.precision_matrix(k)
-                L_k = self.L[k]
-
-                diff = x_batch - self.mu[k]
-
-                # mu gradient
-                grad_mu[k] += np.sum(
-                    G[:, k][:, None] * (diff @ S_k),
-                    axis=0
-                )
-
-                # S gradient
-                outer = np.einsum(
-                    'ni,nj->nij',
-                    diff,
-                    diff
-                )
-                weighted_outer = np.sum(
-                    G[:, k][:, None, None] * outer,
-                    axis=0
-                )
-                grad_S = (
-                    0.5 * np.sum(G[:, k]) * np.linalg.inv(S_k)
-                    - 0.5 * weighted_outer
-                )
-
-                grad_L[k] += (
-                    grad_S + grad_S.T
-                ) @ L_k
-
-        # for regularization
-        for j in range(self.k):
-            I = np.eye(d)
-            S_j = self.precision_matrix(j)
-            grad_L[j] += 4.0 * self.reg_stren * (S_j - I) @ self.L[j]
-
-        grad_mu /= n_batch
-        grad_L /= n_batch
-        grad_alpha /= n_batch
-
-        return grad_mu, grad_L, grad_alpha
-
-    def gradient_descent_epoch(self, x_shuffled, y_shuffled):
-        n = x_shuffled.shape[0]
-
-        for start_idx in range(0, n, self.batch_size):
-            end_idx = start_idx + self.batch_size
-
-            x_batch = x_shuffled[start_idx:end_idx]
-            y_batch = y_shuffled[start_idx:end_idx]
-
-            grad_mu, grad_L, grad_alpha = self.nll_grad(x_batch, y_batch)
-
-            self.mu -= self.learning_rate * grad_mu
-            self.L -= self.learning_rate * grad_L
-            self.alpha -= self.learning_rate * grad_alpha
-
-            # stabilize Cholesky diagonal
-            for j in range(self.k):
-                self.L[j] = np.tril(self.L[j])
-
-                diag = np.diag(self.L[j])
-                diag = np.clip(diag, 1e-4, None)
-
-                np.fill_diagonal(self.L[j], diag)
-
-    def predict(self, x):
-        n, d = x.shape
-        log_posteriors = np.zeros((n, self.k))
-
-        phi = self.phi
-
-        for j in range(self.k):
-            mu_j = self.mu[j]
-            S_j = self.precision_matrix(j)
-            phi_j = phi[j]
-
-            diff = x - mu_j
-
-            sign, logdetS = np.linalg.slogdet(S_j)
-            quad = np.sum((diff @ S_j) * diff, axis=1)
-
-            log_likelihood = (
-                np.log(phi_j + 1e-12)
-                + 0.5 * logdetS
-                - 0.5 * quad
-            )
-            log_posteriors[:, j] = log_likelihood
-
-        return np.argmax(log_posteriors, axis=1)
 
 
 if __name__ == "__main__":

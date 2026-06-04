@@ -46,7 +46,7 @@ class DataConfig:
 @dataclass
 class SupervisedConfig:
     #Data parameters
-    penalty_type : str = "" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
+    penalty_type : str = "distance" #Type of penalty we will be appending. Leave empty if we dont want to apply penalty
     evaluation_metric : int = 2 #1 or 2 for m1 or m2
     horizon : int = 21
 
@@ -55,7 +55,7 @@ class SupervisedConfig:
     testing_method : str = "walk_forward" # "walk forward" vs "standard"
     folds : int = 3
 
-    lam : float = 15.0
+    lam : float = 100.0
     lam_values : List[float] = None
     margin : float = 0.5
 
@@ -76,7 +76,7 @@ class SupervisedConfig:
     epochs : int = 200
 
     window_size : int = 21     #Length of the window 
-    use_window : bool = True
+    use_window : bool = False
     num_filters : int = 16
     kernel_size : int = 5      #Number of steps to look ahead in the filter
 
