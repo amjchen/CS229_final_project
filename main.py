@@ -1,17 +1,3 @@
-"""
-Market Regime Classification - Data Fetching Script
-=====================================================
-Fetches financial time series data from Yahoo Finance as outlined in the
-project proposal:
-  - Daily closing prices (~50 years of history)
-  - Realized/historical volatility (rolling standard deviation of log returns)
-  - Implied volatility via the VIX index (CBOE Volatility Index)
-  - Additional relevant series: volume, market breadth indices, bond yields
-
-Requirements:
-    pip install yfinance pandas numpy
-"""
-
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -34,12 +20,6 @@ data = {
     'aaa': fred.get_series('AAA'),
     'gs3': fred.get_series('GS3'),   # 3-Year Treasury yield for corporate spread
 }
-
-
-
-# ─────────────────────────────────────────────
-# Configuration
-# ─────────────────────────────────────────────
 
 # Date range: ~50 years back from today
 END_DATE = datetime.today().strftime("%Y-%m-%d")
@@ -73,10 +53,6 @@ SUPPLEMENTAL_TICKERS = [
 
 OUTPUT_DIR = "market_data"
 REALIZED_VOL_WINDOWS = [21, 63, 126]  # ~1 month, 1 quarter, 6 months
-
-# ─────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────
 
 def fetch_ticker(ticker: str, start: str, end: str) -> pd.DataFrame:
     """Download OHLCV data for a single ticker from Yahoo Finance."""
@@ -194,16 +170,11 @@ def build_feature_table(close_prices: pd.DataFrame) -> pd.DataFrame:
     return features
 
 
-# ─────────────────────────────────────────────
-# Main
-# ─────────────────────────────────────────────
-
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     all_tickers = EQUITY_TICKERS + VOLATILITY_TICKERS + SUPPLEMENTAL_TICKERS
 
-    # ── 1. Download raw OHLCV data ──────────────────────────────────────────
     print("\n[1/4] Downloading raw OHLCV data from Yahoo Finance...")
     raw_data: dict[str, pd.DataFrame] = {}
     for ticker in all_tickers:
@@ -211,7 +182,6 @@ def main():
         if not df.empty:
             raw_data[ticker] = df
 
-    # ── 2. Build combined closing-price table ───────────────────────────────
     print("\n[2/4] Assembling closing-price table...")
     close_prices = pd.DataFrame({
         ticker: df["close"]
@@ -228,7 +198,6 @@ def main():
     close_prices.to_csv(path_prices)
     print(f"  Saved → {path_prices}  ({close_prices.shape[0]} rows × {close_prices.shape[1]} cols)")
 
-    # ── 3. Compute log returns + realized volatility ─────────────────────────
     print("\n[3/4] Computing log returns and realized volatility...")
     features = build_feature_table(close_prices)
 
@@ -239,7 +208,6 @@ def main():
     features.to_csv(path_features)
     print(f"  Saved → {path_features}  ({features.shape[0]} rows × {features.shape[1]} cols)")
 
-    # ── 4. Save per-ticker full OHLCV CSVs ─────────────────────────────────
     print("\n[4/4] Saving per-ticker OHLCV files...")
     for ticker, df in raw_data.items():
         safe_name = ticker.replace("^", "").replace("=", "_").replace(".", "_")
@@ -247,7 +215,7 @@ def main():
         df.to_csv(path)
         print(f"  Saved → {path}")
 
-    # ── Summary ──────────────────────────────────────────────────────────────
+    # Summary 
     print("\n" + "=" * 60)
     print("Data fetch complete.")
     print(f"  Date range  : {close_prices.index.min().date()} → {close_prices.index.max().date()}")
